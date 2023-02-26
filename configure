@@ -714,6 +714,7 @@ XML2_LIBS
 XML2_CFLAGS
 XML2_CONFIG
 with_libxml
+with_libsls_wal
 with_uuid
 with_readline
 with_systemd
@@ -870,6 +871,7 @@ with_libedit_preferred
 with_uuid
 with_ossp_uuid
 with_libxml
+with_libsls_wal
 with_libxslt
 with_system_tzdata
 with_zlib
@@ -1580,6 +1582,7 @@ Optional Packages:
   --with-uuid=LIB         build contrib/uuid-ossp using LIB (bsd,e2fs,ossp)
   --with-ossp-uuid        obsolete spelling of --with-uuid=ossp
   --with-libxml           build with XML support
+  --with-libsls-wal       build with SLS WAL API
   --with-libxslt          use XSLT support when building contrib/xml2
   --with-system-tzdata=DIR
                           use system time zone data in DIR
@@ -8845,9 +8848,33 @@ else
 
 fi
 
-
 { $as_echo "$as_me:${as_lineno-$LINENO}: result: $with_libxml" >&5
 $as_echo "$with_libxml" >&6; }
+
+# Check whether --with-libsls-wal was given.
+if test "${with_libsls_wal+set}" = set; then :
+  withval=$with_libsls_wal;
+  case $withval in
+    yes)
+
+$as_echo "#define USE_LIBSLS_WAL 1" >>confdefs.h
+
+      ;;
+    no)
+      :
+      ;;
+    *)
+      as_fn_error $? "no argument expected for --with-libsls-wal option" "$LINENO" 5
+      ;;
+  esac
+
+else
+  with_libsls_wal=no
+
+fi
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $with_libsls_wal" >&5
+$as_echo "$with_libsls_wal" >&6; }
 
 
 if test "$with_libxml" = yes ; then

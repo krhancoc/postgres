@@ -106,6 +106,10 @@
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
 
+#ifdef WITH_LIBSLS_WAL
+#include "sls.h"
+#endif
+
 extern uint32 bootstrap_data_checksum_version;
 
 /* timeline ID to be used when bootstrapping */
@@ -3111,12 +3115,18 @@ XLogFileInit(XLogSegNo logsegno, TimeLineID logtli)
 
 	Assert(logtli != 0);
 
+#ifdef WITH_LIBSLS_WAL
+#else
 	fd = XLogFileInitInternal(logsegno, logtli, &ignore_added, path);
+#endif
 	if (fd >= 0)
 		return fd;
 
 	/* Now open original target segment (might not be file I just made) */
+#ifdef WITH_LIBSLS_WAL
+#else
 	fd = BasicOpenFile(path, O_RDWR | PG_BINARY | get_sync_bit(sync_method));
+#endif
 	if (fd < 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
