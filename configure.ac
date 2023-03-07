@@ -19,7 +19,7 @@ m4_pattern_forbid(^PGAC_)dnl to catch undefined macros
 
 AC_INIT([PostgreSQL], [15.2], [pgsql-bugs@lists.postgresql.org], [], [https://www.postgresql.org/])
 
-m4_if(m4_defn([m4_PACKAGE_VERSION]), [2.69], [], [m4_fatal([Autoconf version 2.69 is required.
+m4_if(m4_defn([m4_PACKAGE_VERSION]), [2.71], [], [m4_fatal([Autoconf version 2.69 is required.
 Untested combinations of 'autoconf' and PostgreSQL versions are not
 recommended.  You can remove the check from 'configure.ac' but it is then
 your responsibility whether the result works or not.])])
@@ -1000,6 +1000,8 @@ PGAC_ARG_BOOL(with, libxml, no, [build with XML support],
 AC_MSG_RESULT([$with_libxml])
 AC_SUBST(with_libxml)
 
+
+
 if test "$with_libxml" = yes ; then
   # Check pkg-config, then xml2-config.  But for backwards compatibility,
   # setting XML2_CONFIG overrides pkg-config.
@@ -1035,10 +1037,22 @@ fi
 #
 PGAC_ARG_BOOL(with, libxslt, no, [use XSLT support when building contrib/xml2],
               [AC_DEFINE([USE_LIBXSLT], 1, [Define to 1 to use XSLT support when building contrib/xml2. (--with-libxslt)])])
-
-
 AC_SUBST(with_libxslt)
 
+AC_MSG_CHECKING([whether to build with SLS WAL support])
+PGAC_ARG_BOOL(with, slswal, no, [use the SLS WAL],
+              [AC_DEFINE([USE_SLSWAL], 1, [Define to 1 to use the SLS WAL. (--with-slswal)])])
+AC_MSG_RESULT([$with_slswal])
+AC_SUBST(with_slswal)
+
+if test "$with_slswal" = yes; then
+  AC_CHECK_HEADERS(m4_normalize([
+    sls.h
+    slos.h
+    slsfs.h
+  ]))
+  AC_CHECK_LIB(sls, slsfs_create_wal, [], [AC_MSG_ERROR([library 'sls' is required to build with WAL support])])
+fi
 #
 # tzdata
 #

@@ -54,7 +54,7 @@
  *
  * There is no prescribed format for the string.  The suggestion is to include
  * product or company name, and optionally any internally-relevant ABI
- * version.  Example: "ACME Postgres/1.2".  Note that the string will appear
+ * version.  Example: "ACME Postgres/1.2". Note that the string will appear
  * in a user-facing error message if an ABI mismatch is detected.
  */
 #define FMGR_ABI_EXTRA		"PostgreSQL"

@@ -106,8 +106,10 @@
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
 
-#ifdef WITH_LIBSLS_WAL
+#ifdef USE_SLSWAL 
 #include "sls.h"
+#include "slos.h"
+#include "slsfs.h"
 #endif
 
 extern uint32 bootstrap_data_checksum_version;
@@ -2960,7 +2962,11 @@ XLogFileInitInternal(XLogSegNo logsegno, TimeLineID logtli,
 	unlink(tmppath);
 
 	/* do not use get_sync_bit() here --- want to fsync only at end of fill */
+#ifdef USE_SLSWAL 
+	fd = slsfs_create_wal(tmppath, O_RDWR | O_CREAT | O_EXCL | PG_BINARY, 0, (1024) * (1024));
+#else
 	fd = BasicOpenFile(tmppath, O_RDWR | O_CREAT | O_EXCL | PG_BINARY);
+#endif
 	if (fd < 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
@@ -3115,18 +3121,12 @@ XLogFileInit(XLogSegNo logsegno, TimeLineID logtli)
 
 	Assert(logtli != 0);
 
-#ifdef WITH_LIBSLS_WAL
-#else
 	fd = XLogFileInitInternal(logsegno, logtli, &ignore_added, path);
-#endif
 	if (fd >= 0)
 		return fd;
 
 	/* Now open original target segment (might not be file I just made) */
-#ifdef WITH_LIBSLS_WAL
-#else
 	fd = BasicOpenFile(path, O_RDWR | PG_BINARY | get_sync_bit(sync_method));
-#endif
 	if (fd < 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
