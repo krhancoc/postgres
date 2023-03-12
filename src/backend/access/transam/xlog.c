@@ -107,10 +107,16 @@
 #include "utils/timestamp.h"
 
 #ifdef USE_SLSWAL 
+#include "common/file_perm.h"
+
 #include "sls.h"
 #include "slos.h"
 #include "slsfs.h"
 #endif
+
+#define KB (1024)
+#define MB (1024 * KB)
+#define GB (1024 * GB)
 
 extern uint32 bootstrap_data_checksum_version;
 
@@ -118,7 +124,7 @@ extern uint32 bootstrap_data_checksum_version;
 #define BootstrapTimeLineID		1
 
 /* User-settable parameters */
-int			max_wal_size_mb = 1024; /* 1 GB */
+int			max_wal_size_mb = 200; /* 200 MB */
 int			min_wal_size_mb = 80;	/* 80 MB */
 int			wal_keep_size_mb = 0;
 int			XLOGbuffers = -1;
@@ -980,7 +986,7 @@ XLogInsertRecord(XLogRecData *rdata,
 
 		if (!debug_reader)
 			debug_reader = XLogReaderAllocate(wal_segment_size, NULL,
-											  XL_ROUTINE(), NULL);
+											  XL_(), NULL);
 
 		if (!debug_reader)
 		{
@@ -2962,8 +2968,8 @@ XLogFileInitInternal(XLogSegNo logsegno, TimeLineID logtli,
 	unlink(tmppath);
 
 	/* do not use get_sync_bit() here --- want to fsync only at end of fill */
-#ifdef USE_SLSWAL 
-	fd = slsfs_create_wal(tmppath, O_RDWR | O_CREAT | O_EXCL | PG_BINARY, 0, (1024) * (1024));
+#ifdef USE_SLSWAL
+	fd = slsfs_create_wal(tmppath, O_RDWR | O_CREAT | O_EXCL | PG_BINARY, pg_file_create_mode, (200 * MB));
 #else
 	fd = BasicOpenFile(tmppath, O_RDWR | O_CREAT | O_EXCL | PG_BINARY);
 #endif
