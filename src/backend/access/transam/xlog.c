@@ -124,8 +124,8 @@ extern uint32 bootstrap_data_checksum_version;
 #define BootstrapTimeLineID		1
 
 /* User-settable parameters */
-int			max_wal_size_mb = 200; /* 200 MB */
-int			min_wal_size_mb = 80;	/* 80 MB */
+int			max_wal_size_mb = 50; /* 200 MB */
+int			min_wal_size_mb = 8;	/* 80 MB */
 int			wal_keep_size_mb = 0;
 int			XLOGbuffers = -1;
 int			XLogArchiveTimeout = 0;
@@ -2969,7 +2969,7 @@ XLogFileInitInternal(XLogSegNo logsegno, TimeLineID logtli,
 
 	/* do not use get_sync_bit() here --- want to fsync only at end of fill */
 #ifdef USE_SLSWAL
-	fd = slsfs_create_wal(tmppath, O_RDWR | O_CREAT | O_EXCL | PG_BINARY, pg_file_create_mode, (200 * MB));
+	fd = slsfs_create_wal(tmppath, O_RDWR | O_CREAT | O_EXCL | PG_BINARY, pg_file_create_mode, (50 * MB));
 #else
 	fd = BasicOpenFile(tmppath, O_RDWR | O_CREAT | O_EXCL | PG_BINARY);
 #endif
