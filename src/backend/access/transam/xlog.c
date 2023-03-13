@@ -124,8 +124,14 @@ extern uint32 bootstrap_data_checksum_version;
 #define BootstrapTimeLineID		1
 
 /* User-settable parameters */
+
+#ifdef USE_SLSWAL 
 int			max_wal_size_mb = 50; /* 200 MB */
-int			min_wal_size_mb = 8;	/* 80 MB */
+int			min_wal_size_mb = 16;	/* 80 MB */
+#else
+int			max_wal_size_mb = 1024; /* 200 MB */
+int			min_wal_size_mb = 80;	/* 80 MB */
+#endif
 int			wal_keep_size_mb = 0;
 int			XLOGbuffers = -1;
 int			XLogArchiveTimeout = 0;
