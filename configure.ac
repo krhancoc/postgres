@@ -1053,6 +1053,26 @@ if test "$with_slswal" = yes; then
   ]))
   AC_CHECK_LIB(sls, slsfs_create_wal, [], [AC_MSG_ERROR([library 'sls' is required to build with WAL support])])
 fi
+
+AC_MSG_CHECKING([Overwrite pg_wal location])
+PGAC_ARG_REQ(with, overwrite, [OVERWRITE], [Use new pg_wal location],
+             [overwrite=$withval],
+             [overwrite=""])
+AC_MSG_RESULT([$overwrite])
+
+if test "$overwrite" != ""; then
+  AC_DEFINE_UNQUOTED([LOG_OVERWRITE], ["$overwrite"], [Overwriting default location of wal directory])
+fi
+
+if test "$with_slswal" = yes; then
+  AC_CHECK_HEADERS(m4_normalize([
+    sls.h
+    slos.h
+    slsfs.h
+  ]))
+  AC_CHECK_LIB(sls, slsfs_create_wal, [], [AC_MSG_ERROR([library 'sls' is required to build with WAL support])])
+fi
+
 #
 # tzdata
 #

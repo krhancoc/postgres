@@ -799,6 +799,9 @@
 /* Define to 1 if `locale_t' requires <xlocale.h>. */
 #undef LOCALE_T_IN_XLOCALE
 
+/* Overwriting default location of wal directory */
+#undef LOG_OVERWRITE
+
 /* Define as the maximum alignment requirement of any C data type. */
 #undef MAXIMUM_ALIGNOF
 

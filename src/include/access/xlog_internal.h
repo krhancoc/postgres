@@ -146,7 +146,11 @@ typedef XLogLongPageHeaderData *XLogLongPageHeader;
 /*
  * The XLog directory and control file (relative to $PGDATA)
  */
+#ifdef LOG_OVERWRITE
+#define XLOGDIR				LOG_OVERWRITE
+#else
 #define XLOGDIR				"pg_wal"
+#endif
 #define XLOG_CONTROL_FILE	"global/pg_control"
 
 /*
