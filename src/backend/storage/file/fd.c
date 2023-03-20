@@ -71,6 +71,7 @@
  */
 
 #include "postgres.h"
+#include "storage/shmem.h"
 
 #include <dirent.h>
 #include <sys/file.h>
@@ -102,6 +103,18 @@
 #include "storage/ipc.h"
 #include "utils/guc.h"
 #include "utils/resowner_private.h"
+
+#ifdef USE_SLSMEM
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/mman.h>
+
+#include "utils/hsearch.h"
+#include "common/hashfn.h"
+
+static const size_t MMAP_SIZE =  1 << 22;
+static const int ID = 'P';
+#endif
 
 /* Define PG_FLUSH_DATA_WORKS if we have an implementation for pg_flush_data */
 #if defined(HAVE_SYNC_FILE_RANGE)
@@ -166,7 +179,7 @@ bool		data_sync_retry = false;
 int			recovery_init_sync_method = RECOVERY_INIT_SYNC_METHOD_FSYNC;
 
 /* Debugging.... */
-
+#define FDDEBUG 1
 #ifdef FDDEBUG
 #define DO_DB(A) \
 	do { \
@@ -190,6 +203,13 @@ int			recovery_init_sync_method = RECOVERY_INIT_SYNC_METHOD_FSYNC;
 #define FD_DELETE_AT_CLOSE	(1 << 0)	/* T = delete when closed */
 #define FD_CLOSE_AT_EOXACT	(1 << 1)	/* T = close at eoXact */
 #define FD_TEMP_FILE_LIMIT	(1 << 2)	/* T = respect temp_file_limit */
+#ifdef USE_SLSMEM
+
+#endif
+
+#ifdef USE_SLSMEM
+#define ADDRMAX (256)
+#endif
 
 typedef struct vfd
 {
@@ -204,6 +224,9 @@ typedef struct vfd
 	/* NB: fileName is malloc'd, and must be free'd when closing the VFD */
 	int			fileFlags;		/* open(2) flags for (re)opening the file */
 	mode_t		fileMode;		/* mode to pass to open(2) */
+#ifdef USE_SLSMEM
+  bool      isMem;
+#endif
 } Vfd;
 
 /*
@@ -287,6 +310,42 @@ static Oid *tempTableSpaces = NULL;
 static int	numTempTableSpaces = -1;
 static int	nextTempTableSpace = 0;
 
+#ifdef USE_SLSMEM
+
+/*
+ * Helper function for filemap hash table.
+ */
+static uint32
+hash_string_pointer(const char *s)
+{
+	unsigned char *ss = (unsigned char *) s;
+
+	return hash_bytes(ss, strlen(s));
+}
+
+struct AddrTableEntry {
+  const char *key;
+  char status;
+  size_t memSize;
+  void *addr;
+};
+
+static HTAB *AddrTable;
+
+#define SH_PREFIX addr
+#define SH_ELEMENT_TYPE struct AddrTableEntry 
+#define SH_KEY_TYPE const char * 
+#define SH_KEY key 
+#define SH_HASH_KEY(tb, key)	hash_string_pointer(key)
+#define SH_EQUAL(tb, a, b)		(strcmp(a, b) == 0)
+#define SH_SCOPE static inline
+#define SH_DEFINE
+#define SH_DECLARE
+#include "lib/simplehash.h"
+
+static struct addr_hash *table;
+
+#endif
 
 /*--------------------
  *
@@ -350,6 +409,170 @@ static void datadir_fsync_fname(const char *fname, bool isdir, int elevel);
 static void unlink_if_exists_fname(const char *fname, bool isdir, int elevel);
 
 static int	fsync_parent_path(const char *fname, int elevel);
+
+#ifdef USE_SLSMEM
+
+char *
+GetFullPath(char *path)
+{
+  char * fullpath = (char *)malloc(1024);
+  char * p = getcwd(fullpath, 1024);
+  snprintf(fullpath, 1024, "%s/%s", p, path);
+  return fullpath;
+
+}
+
+static struct AddrTableEntry *
+get_entry(Vfd *vfd) {
+ //return hash_search(AddrTable, vfd->fileName, HASH_FIND, NULL);
+ return addr_lookup(table, vfd->fileName);
+}
+
+static int 
+MemRead(Vfd *vfd, char *buffer, size_t size, off_t offset)
+{
+  struct AddrTableEntry *entry;
+
+  entry = get_entry(vfd);
+  if (entry == NULL) {
+    elog(ERROR, "Could not find element when reading");
+  }
+
+  if (offset >= entry->memSize) {
+      return 0;
+  }
+
+  if ((offset + size) > entry->memSize) {
+    size = entry->memSize - offset;
+  }
+
+  if ((offset + size) >= MMAP_SIZE) {
+    elog(ERROR, "Too large of a write to region - increase MMAP_SIZE");
+  }
+
+  DO_DB(elog(LOG,"MemRead %s %p %lu %lu\n", vfd->fileName, entry->addr, size, offset));
+  memcpy(buffer, (char *)entry->addr + offset, size);
+
+  errno = 0;
+  return size;
+}
+
+static int 
+MemWrite(Vfd *vfd, char *buffer, size_t size, off_t offset)
+{
+  struct AddrTableEntry *entry;
+
+  entry = get_entry(vfd);
+
+  if (entry == NULL) {
+    elog(ERROR, "Could not find element when writing");
+  }
+
+  if ((offset + size) > entry->memSize) {
+    DO_DB(elog(LOG, "Updating size from %s %lu %lu %lu\n", vfd->fileName, entry->memSize, offset, size));
+    entry->memSize = offset + size;
+    DO_DB(elog(LOG,"Updated size from %s %lu %lu %lu\n", vfd->fileName, entry->memSize, offset, size));
+  }
+
+  if ((offset + size) >= MMAP_SIZE) {
+    elog(ERROR, "Too large of a write to region - increase MMAP_SIZE");
+  }
+
+  DO_DB(elog(LOG,"Memwrite %s %p %lu %lu\n", vfd->fileName, entry->addr, size, offset));
+  memcpy((char *)entry->addr + offset, buffer, size);
+  msync(entry->addr, 0, MS_ASYNC);
+
+  errno = 0;
+  return size;
+}
+
+static int 
+MemOpen(const char *path, int flags, mode_t mode)
+{
+  int fd;
+  bool found;
+  void *addr;
+  struct AddrTableEntry *foundele = NULL;
+
+  //foundele = hash_search(AddrTable, path, HASH_FIND, NULL);
+  foundele = addr_lookup(table, path);
+  DO_DB(elog(LOG, "MemOpen: %s %p %lu", path, foundele, strlen(path)));
+  if ((foundele != NULL) && (flags & O_CREAT)) {
+    if (flags & O_EXCL) {
+      errno = EEXIST;
+      return -1;
+    } else {
+      fd =  open(path, flags, mode);
+      if (fd < 0 && errno == ENOENT) {
+        elog(ERROR, "Could not open path %s", path);
+      }
+
+      return fd;
+    }
+  }
+
+  if (flags & O_CREAT) {
+    /* Quickly open a file so its there*/
+    fd = open(path, flags, mode);
+    if (fd < 0) {
+      perror("Problem opening path");
+      elog(ERROR, "Could not open path %s", path);
+    }
+    ftruncate(fd, MMAP_SIZE);
+
+    addr = mmap(NULL, MMAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (addr == (void *)(-1)) {
+      perror("MMAP Error");
+      elog(ERROR, "Could not mmap");
+    }
+
+    //foundele = hash_search(AddrTable, path, HASH_ENTER, NULL);
+    foundele = addr_insert(table, path, &found);
+    DO_DB(elog(LOG, "MemOpen Create: %s %p", path, foundele));
+    foundele->key = strdup(path);
+    foundele->addr = addr;
+    foundele->memSize = 0;
+
+    return fd;
+  }
+
+  if (foundele == NULL) {
+    elog(LOG, "TABLE SIZE: %lu", table->size);
+    for (uint64 i = 0; i < table->size; i++) {
+      struct AddrTableEntry *entry = &table->data[i];
+      if (entry->status != addr_SH_EMPTY) {
+        elog(LOG, "KEY: %s", entry->key);
+      }
+    }
+
+    errno = ENOENT;
+    return -1;
+  }
+  /* Opening without a create */
+  DO_DB(elog(LOG, "MemOpen Open: %s %p", path, foundele));
+
+  if (strcmp(path, foundele->key) != 0) {
+    elog(ERROR, "Paths are different! %s %s\n", path, foundele->key);
+  }
+
+  fd = open(path, flags, mode);
+  if (fd < 0)
+    elog(ERROR, "Should be found");
+
+  return fd;
+}
+
+void
+MemTruncate(File file, size_t size)
+{
+  Vfd *vfdP = &VfdCache[file];
+  struct AddrTableEntry *entry;
+  entry = get_entry(vfdP);
+  entry->memSize = size; 
+  DO_DB(elog(LOG,"MemTruncate %s %lu\n", vfdP->fileName, entry->memSize));
+}
+
+#endif
 
 
 /*
@@ -870,6 +1093,23 @@ durable_rename_excl(const char *oldfile, const char *newfile, int elevel)
 	return 0;
 }
 
+static int mycomparefunction(const void *key1, const void *key2,
+								Size keysize)
+{
+  DO_DB(elog(LOG, "COMPARE %s - %s, %d\n", (char *)key1, (char *)key2, strncmp(key1, key2, keysize - 1)));
+  return strncmp(key1, key2, keysize - 1);
+}
+
+static void * mycopyfunction(void *dest, const void *src, Size keysize)
+{
+  DO_DB(elog(LOG,"COPY %s\n", (char *)src));
+  size_t ret = strlcpy(dest, src, keysize);
+  DO_DB(elog(LOG, "COPY DONE %s\n", (char *)dest));
+  return (void *)ret;
+}
+
+
+
 /*
  * InitFileAccess --- initialize this module during backend startup
  *
@@ -882,6 +1122,10 @@ durable_rename_excl(const char *oldfile, const char *newfile, int elevel)
 void
 InitFileAccess(void)
 {
+#ifdef USE_SLSMEM
+  HASHCTL hash_ctl;
+#endif
+
 	Assert(SizeVfdCache == 0);	/* call me only once */
 
 	/* initialize cache header entry */
@@ -895,6 +1139,16 @@ InitFileAccess(void)
 	VfdCache->fd = VFD_CLOSED;
 
 	SizeVfdCache = 1;
+
+#ifdef USE_SLSMEM
+  hash_ctl.keysize = ADDRMAX;
+  hash_ctl.entrysize = sizeof(struct AddrTableEntry);
+  hash_ctl.match = mycomparefunction;
+  hash_ctl.keycopy = mycopyfunction;
+
+  AddrTable = hash_create("Memory Address Table", 20000, &hash_ctl, HASH_ELEM | HASH_STRINGS | HASH_COMPARE | HASH_KEYCOPY);
+  table = addr_create(CurrentMemoryContext, 200, NULL);
+#endif
 }
 
 /*
@@ -1241,7 +1495,7 @@ _dump_lru(void)
 {
 	int			mru = VfdCache[0].lruLessRecently;
 	Vfd		   *vfdP = &VfdCache[mru];
-	char		buf[2048];
+	char		buf[4096];
 
 	snprintf(buf, sizeof(buf), "LRU: MOST %d ", mru);
 	while (mru != 0)
@@ -1290,9 +1544,14 @@ LruDelete(File file)
 	 * Close the file.  We aren't expecting this to fail; if it does, better
 	 * to leak the FD than to mess up our internal state.
 	 */
+#ifdef USE_SLSMEM 
+	if (!vfdP->isMem && (close(vfdP->fd) != 0))
+#else
 	if (close(vfdP->fd) != 0)
+#endif
 		elog(vfdP->fdstate & FD_TEMP_FILE_LIMIT ? LOG : data_sync_elevel(LOG),
 			 "could not close file \"%s\": %m", vfdP->fileName);
+
 	vfdP->fd = VFD_CLOSED;
 	--nfile;
 
@@ -1464,10 +1723,15 @@ FreeVfd(File file)
 {
 	Vfd		   *vfdP = &VfdCache[file];
 
+#ifdef USESLS_MEM
+	DO_DB(elog(LOG, "FreeVfd: %d (%s)",
+			   file, vfdP->fileName));
+#else
 	DO_DB(elog(LOG, "FreeVfd: %d (%s)",
 			   file, vfdP->fileName ? vfdP->fileName : ""));
+#endif
 
-	if (vfdP->fileName != NULL)
+	if (vfdP->fileName == NULL)
 	{
 		free(vfdP->fileName);
 		vfdP->fileName = NULL;
@@ -1565,8 +1829,21 @@ FileInvalidate(File file)
 File
 PathNameOpenFile(const char *fileName, int fileFlags)
 {
+#ifdef USE_SLSMEM
+	return PathNameOpenFilePerm(fileName, fileFlags, pg_file_create_mode, false);
+#else
 	return PathNameOpenFilePerm(fileName, fileFlags, pg_file_create_mode);
+#endif
 }
+
+#ifdef USE_SLSMEM
+File
+PathNameOpenFileMem(const char *fileName, int fileFlags)
+{
+	return PathNameOpenFilePerm(fileName, fileFlags, pg_file_create_mode, true);
+}
+#endif
+
 
 /*
  * open a file in an arbitrary directory
@@ -1575,8 +1852,13 @@ PathNameOpenFile(const char *fileName, int fileFlags)
  * it will be interpreted relative to the process' working directory
  * (which should always be $PGDATA when this code is running).
  */
+#ifdef USE_SLSMEM
+File
+PathNameOpenFilePerm(const char *fileName, int fileFlags, mode_t fileMode, bool isMem)
+#else
 File
 PathNameOpenFilePerm(const char *fileName, int fileFlags, mode_t fileMode)
+#endif
 {
 	char	   *fnamecopy;
 	File		file;
@@ -1600,10 +1882,24 @@ PathNameOpenFilePerm(const char *fileName, int fileFlags, mode_t fileMode)
 	/* Close excess kernel FDs. */
 	ReleaseLruFiles();
 
-	vfdP->fd = BasicOpenFilePerm(fileName, fileFlags, fileMode);
+#ifdef USE_SLSMEM
+	DO_DB(elog(LOG, "PathNameOpenFilePerm isMem: %d",
+			   isMem));
+  if (isMem) {
+	  vfdP->fd = MemOpen(fileName, fileFlags, fileMode);
+    vfdP->isMem = true;
+  } else {
+	  vfdP->fd = BasicOpenFilePerm(fileName, fileFlags, fileMode);
+    vfdP->isMem = false;
+  }
+#else
+	  vfdP->fd = BasicOpenFilePerm(fileName, fileFlags, fileMode);
+#endif
 
 	if (vfdP->fd < 0)
 	{
+  	DO_DB(elog(LOG, "PathNameOpenFilePerm could not find fd %d", errno));
+
 		int			save_errno = errno;
 
 		FreeVfd(file);
@@ -1790,6 +2086,7 @@ OpenTemporaryFileInTablespace(Oid tblspcOid, bool rejectError)
 	char		tempfilepath[MAXPGPATH];
 	File		file;
 
+
 	TempTablespacePath(tempdirpath, tblspcOid);
 
 	/*
@@ -1798,6 +2095,9 @@ OpenTemporaryFileInTablespace(Oid tblspcOid, bool rejectError)
 	 */
 	snprintf(tempfilepath, sizeof(tempfilepath), "%s/%s%d.%ld",
 			 tempdirpath, PG_TEMP_FILE_PREFIX, MyProcPid, tempFileCounter++);
+
+	DO_DB(elog(LOG, "OpenTemporaryFileInTablespace: %s",
+			   tempfilepath));
 
 	/*
 	 * Open the file.  Note: we don't use O_EXCL, in case there is an orphaned
@@ -1884,6 +2184,9 @@ File
 PathNameOpenTemporaryFile(const char *path, int mode)
 {
 	File		file;
+	DO_DB(elog(LOG, "PathNameOpenTemporaryFile: %s %o",
+			   path, mode));
+
 
 	Assert(temporary_files_allowed);	/* check temp file access is up */
 
@@ -1981,7 +2284,6 @@ FileClose(File file)
 			elog(vfdP->fdstate & FD_TEMP_FILE_LIMIT ? LOG : data_sync_elevel(LOG),
 				 "could not close file \"%s\": %m", vfdP->fileName);
 		}
-
 		--nfile;
 		vfdP->fd = VFD_CLOSED;
 
@@ -2103,6 +2405,12 @@ FileWriteback(File file, off_t offset, off_t nbytes, uint32 wait_event_info)
 	if (returnCode < 0)
 		return;
 
+#ifdef USE_SLSMEM
+  if (VfdCache[file].isMem) {
+    return;
+  }
+#endif
+
 	pgstat_report_wait_start(wait_event_info);
 	pg_flush_data(VfdCache[file].fd, offset, nbytes);
 	pgstat_report_wait_end();
@@ -2130,7 +2438,15 @@ FileRead(File file, char *buffer, int amount, off_t offset,
 
 retry:
 	pgstat_report_wait_start(wait_event_info);
+#ifdef USE_SLSMEM
+  if (vfdP->isMem) {
+	  returnCode = MemRead(vfdP, buffer, amount, offset);
+  } else {
+	  returnCode = pg_pread(vfdP->fd, buffer, amount, offset);
+  }
+#else
 	returnCode = pg_pread(vfdP->fd, buffer, amount, offset);
+#endif
 	pgstat_report_wait_end();
 
 	if (returnCode < 0)
@@ -2212,7 +2528,15 @@ FileWrite(File file, char *buffer, int amount, off_t offset,
 retry:
 	errno = 0;
 	pgstat_report_wait_start(wait_event_info);
+#ifdef USE_SLSMEM
+  if (vfdP->isMem) {
+    returnCode = MemWrite(&VfdCache[file], buffer, amount, offset);
+  } else {
+	  returnCode = pg_pwrite(VfdCache[file].fd, buffer, amount, offset);
+  }
+#else
 	returnCode = pg_pwrite(VfdCache[file].fd, buffer, amount, offset);
+#endif
 	pgstat_report_wait_end();
 
 	/* if write didn't set errno, assume problem is no disk space */
@@ -2276,9 +2600,17 @@ FileSync(File file, uint32 wait_event_info)
 	if (returnCode < 0)
 		return returnCode;
 
+#ifdef USE_SLSMEM
+  if (!VfdCache[file].isMem) {
+    pgstat_report_wait_start(wait_event_info);
+    returnCode = pg_fsync(VfdCache[file].fd);
+    pgstat_report_wait_end();
+  }
+#else
 	pgstat_report_wait_start(wait_event_info);
 	returnCode = pg_fsync(VfdCache[file].fd);
 	pgstat_report_wait_end();
+#endif
 
 	return returnCode;
 }
@@ -2297,6 +2629,14 @@ FileSize(File file)
 			return (off_t) -1;
 	}
 
+#ifdef USE_SLSMEM 
+  struct AddrTableEntry *entry;
+
+  if (VfdCache[file].isMem) {
+    entry = get_entry(&VfdCache[file]);
+    return entry->memSize;
+  }
+#endif
 	return lseek(VfdCache[file].fd, 0, SEEK_END);
 }
 
@@ -3891,3 +4231,5 @@ pg_pwritev_with_retry(int fd, const struct iovec *iov, int iovcnt, off_t offset)
 
 	return sum;
 }
+
+

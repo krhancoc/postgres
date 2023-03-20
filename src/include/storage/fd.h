@@ -101,7 +101,13 @@ extern PGDLLIMPORT int max_safe_fds;
 
 /* Operations on virtual Files --- equivalent to Unix kernel file ops */
 extern File PathNameOpenFile(const char *fileName, int fileFlags);
+#ifdef USE_SLSMEM
+extern File PathNameOpenFileMem(const char *fileName, int fileFlags);
+extern File PathNameOpenFilePerm(const char *fileName, int fileFlags, mode_t fileMode, bool isMem);
+#else
 extern File PathNameOpenFilePerm(const char *fileName, int fileFlags, mode_t fileMode);
+#endif
+
 extern File OpenTemporaryFile(bool interXact);
 extern void FileClose(File file);
 extern int	FilePrefetch(File file, off_t offset, int amount, uint32 wait_event_info);
@@ -190,6 +196,12 @@ extern int	durable_unlink(const char *fname, int loglevel);
 extern int	durable_rename_excl(const char *oldfile, const char *newfile, int loglevel);
 extern void SyncDataDirectory(void);
 extern int	data_sync_elevel(int elevel);
+
+#ifdef USE_SLSMEM
+extern void MemTruncate(File file, size_t size);
+
+extern char *GetFullPath(char *path);
+#endif
 
 /* Filename components */
 #define PG_TEMP_FILES_DIR "pgsql_tmp"

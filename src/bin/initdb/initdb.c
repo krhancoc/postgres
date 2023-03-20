@@ -3046,11 +3046,12 @@ main(int argc, char *argv[])
 		pg_fatal("%s cannot be specified unless locale provider \"%s\" is chosen",
 				 "--icu-locale", "icu");
 
-	atexit(cleanup_directories_atexit);
+  //atexit(cleanup_directories_atexit);
 
 	/* If we only need to fsync, just do it and exit */
 	if (sync_only)
 	{
+
 		setup_pgdata();
 
 		/* must check that directory is readable */
@@ -3063,6 +3064,7 @@ main(int argc, char *argv[])
 		check_ok();
 		return 0;
 	}
+
 
 	if (pwprompt && pwfilename)
 		pg_fatal("password prompt and password file cannot be specified together");

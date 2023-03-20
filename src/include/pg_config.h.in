@@ -954,6 +954,9 @@
 /* Define to 1 to use software CRC-32C implementation (slicing-by-8). */
 #undef USE_SLICING_BY_8_CRC32C
 
+/* Define to 1 to use SLS Shared memory (--with-slsmem) */
+#undef USE_SLSMEM
+
 /* Define to 1 to use the SLS WAL. (--with-slswal) */
 #undef USE_SLSWAL
 
