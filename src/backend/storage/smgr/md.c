@@ -225,7 +225,7 @@ mdcreate(SMgrRelation reln, ForkNumber forkNum, bool isRedo)
 
 		if (isRedo)
 #ifdef USE_SLSMEM
-	    fd = PathNameOpenFileMem(path, O_RDWR | O_CREAT | O_EXCL | PG_BINARY);
+	    fd = PathNameOpenFileMem(path, O_RDWR | PG_BINARY);
 #else
 			fd = PathNameOpenFile(path, O_RDWR | PG_BINARY);
 #endif
@@ -377,14 +377,8 @@ mdunlinkfork(RelFileNodeBackend rnode, ForkNumber forkNum, bool isRedo)
 		/* Next unlink the file, unless it was already found to be missing */
 		if (ret >= 0 || errno != ENOENT)
 		{
-#ifdef USE_SLSMEM
-      char * fullpath = GetFullPath(path);
-			ret = shm_unlink(fullpath);
-
-      free(fullpath);
-#else
+      elog(LOG, "Unlinking path %s", path);
 			ret = unlink(path);
-#endif
 			if (ret < 0 && errno != ENOENT)
 			{
 				save_errno = errno;
