@@ -111,6 +111,8 @@
 
 #include "utils/hsearch.h"
 #include "common/hashfn.h"
+#include "storage/shmem.h"
+#include "storage/lwlocknames.h"
 
 static const size_t MMAP_SIZE =  1 << 22;
 static const int ID = 'P';
@@ -324,24 +326,32 @@ hash_string_pointer(const char *s)
 }
 
 struct AddrTableEntry {
-  const char *key;
+  const char key[ADDRMAX];
   char status;
   size_t memSize;
   void *addr;
 };
 
-static HTAB *AddrTable;
+static HTAB *AddrTable = NULL;
 
-#define SH_PREFIX addr
-#define SH_ELEMENT_TYPE struct AddrTableEntry 
-#define SH_KEY_TYPE const char * 
-#define SH_KEY key 
-#define SH_HASH_KEY(tb, key)	hash_string_pointer(key)
-#define SH_EQUAL(tb, a, b)		(strcmp(a, b) == 0)
-#define SH_SCOPE static inline
-#define SH_DEFINE
-#define SH_DECLARE
-#include "lib/simplehash.h"
+static void *
+mymalloc(size_t size) {
+  void *region = malloc(size);
+  memset(region, 0, size);
+  return region;
+}
+
+/* #define SH_PREFIX addr */
+/* #define SH_ELEMENT_TYPE struct AddrTableEntry */ 
+/* #define SH_KEY_TYPE const char * */ 
+/* #define SH_KEY key */ 
+/* #define SH_HASH_KEY(tb, key)	hash_string_pointer(key) */
+/* #define SH_EQUAL(tb, a, b)		(strcmp(a, b) == 0) */
+/* #define SH_SCOPE static inline */
+/* #define SH_RAW_ALLOCATOR mymalloc */
+/* #define SH_DEFINE */
+/* #define SH_DECLARE */
+/* #include "lib/simplehash.h" */
 
 static struct addr_hash *table;
 
@@ -424,14 +434,15 @@ GetFullPath(char *path)
 
 static struct AddrTableEntry *
 get_entry(Vfd *vfd) {
- //return hash_search(AddrTable, vfd->fileName, HASH_FIND, NULL);
- return addr_lookup(table, vfd->fileName);
+ return hash_search(AddrTable, vfd->fileName, HASH_FIND, NULL);
+ //return addr_lookup(table, vfd->fileName);
 }
 
 static int 
 MemRead(Vfd *vfd, char *buffer, size_t size, off_t offset)
 {
   struct AddrTableEntry *entry;
+  LWLockAcquire(AddrTableLock, LW_EXCLUSIVE);
 
   entry = get_entry(vfd);
   if (entry == NULL) {
@@ -439,7 +450,8 @@ MemRead(Vfd *vfd, char *buffer, size_t size, off_t offset)
   }
 
   if (offset >= entry->memSize) {
-      return 0;
+    LWLockRelease(AddrTableLock);
+    return 0;
   }
 
   if ((offset + size) > entry->memSize) {
@@ -454,6 +466,7 @@ MemRead(Vfd *vfd, char *buffer, size_t size, off_t offset)
   memcpy(buffer, (char *)entry->addr + offset, size);
 
   errno = 0;
+  LWLockRelease(AddrTableLock);
   return size;
 }
 
@@ -461,11 +474,16 @@ static int
 MemWrite(Vfd *vfd, char *buffer, size_t size, off_t offset)
 {
   struct AddrTableEntry *entry;
+  LWLockAcquire(AddrTableLock, LW_EXCLUSIVE);
 
   entry = get_entry(vfd);
 
   if (entry == NULL) {
     elog(ERROR, "Could not find element when writing");
+  }
+
+  if ((offset + size) >= MMAP_SIZE) {
+    elog(ERROR, "Too large of a write to region - increase MMAP_SIZE");
   }
 
   if ((offset + size) > entry->memSize) {
@@ -474,15 +492,12 @@ MemWrite(Vfd *vfd, char *buffer, size_t size, off_t offset)
     DO_DB(elog(LOG,"Updated size from %s %lu %lu %lu\n", vfd->fileName, entry->memSize, offset, size));
   }
 
-  if ((offset + size) >= MMAP_SIZE) {
-    elog(ERROR, "Too large of a write to region - increase MMAP_SIZE");
-  }
-
   DO_DB(elog(LOG,"Memwrite %s %p %lu %lu\n", vfd->fileName, entry->addr, size, offset));
   memcpy((char *)entry->addr + offset, buffer, size);
   msync(entry->addr, 0, MS_ASYNC);
 
   errno = 0;
+  LWLockRelease(AddrTableLock);
   return size;
 }
 
@@ -493,13 +508,16 @@ MemOpen(const char *path, int flags, mode_t mode)
   bool found;
   void *addr;
   struct AddrTableEntry *foundele = NULL;
+  LWLockAcquire(AddrTableLock, LW_EXCLUSIVE);
 
-  //foundele = hash_search(AddrTable, path, HASH_FIND, NULL);
-  foundele = addr_lookup(table, path);
+  foundele = hash_search(AddrTable, path, HASH_FIND, NULL);
+  //foundele = addr_lookup(table, path);
   DO_DB(elog(LOG, "MemOpen: %s %p %lu", path, foundele, strlen(path)));
   if ((foundele != NULL) && (flags & O_CREAT)) {
     if (flags & O_EXCL) {
       errno = EEXIST;
+      LWLockRelease(AddrTableLock);
+
       return -1;
     } else {
       fd =  open(path, flags, mode);
@@ -507,18 +525,19 @@ MemOpen(const char *path, int flags, mode_t mode)
         elog(ERROR, "Could not open path %s", path);
       }
 
+      LWLockRelease(AddrTableLock);
       return fd;
     }
   }
 
-  if (flags & O_CREAT) {
+  fd = open(path, flags, mode);
+
+  bool exist_but_new = (fd > 0) && (foundele == NULL);
+
+  if (exist_but_new) {
     /* Quickly open a file so its there*/
-    fd = open(path, flags, mode);
-    if (fd < 0) {
-      perror("Problem opening path");
-      elog(ERROR, "Could not open path %s", path);
-    }
-    ftruncate(fd, MMAP_SIZE);
+    if (flags & O_CREAT)
+      ftruncate(fd, MMAP_SIZE);
 
     addr = mmap(NULL, MMAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (addr == (void *)(-1)) {
@@ -526,28 +545,24 @@ MemOpen(const char *path, int flags, mode_t mode)
       elog(ERROR, "Could not mmap");
     }
 
-    //foundele = hash_search(AddrTable, path, HASH_ENTER, NULL);
-    foundele = addr_insert(table, path, &found);
+    foundele = hash_search(AddrTable, path, HASH_ENTER, NULL);
+    //foundele = addr_insert(table, path, &found);
     DO_DB(elog(LOG, "MemOpen Create: %s %p", path, foundele));
-    foundele->key = strdup(path);
+    strlcpy(foundele->key, path, ADDRMAX);
     foundele->addr = addr;
     foundele->memSize = 0;
+
+    LWLockRelease(AddrTableLock);
 
     return fd;
   }
 
   if (foundele == NULL) {
-    elog(LOG, "TABLE SIZE: %lu", table->size);
-    for (uint64 i = 0; i < table->size; i++) {
-      struct AddrTableEntry *entry = &table->data[i];
-      if (entry->status != addr_SH_EMPTY) {
-        elog(LOG, "KEY: %s", entry->key);
-      }
-    }
-
     errno = ENOENT;
+    LWLockRelease(AddrTableLock);
     return -1;
   }
+
   /* Opening without a create */
   DO_DB(elog(LOG, "MemOpen Open: %s %p", path, foundele));
 
@@ -555,9 +570,7 @@ MemOpen(const char *path, int flags, mode_t mode)
     elog(ERROR, "Paths are different! %s %s\n", path, foundele->key);
   }
 
-  fd = open(path, flags, mode);
-  if (fd < 0)
-    elog(ERROR, "Should be found");
+  LWLockRelease(AddrTableLock);
 
   return fd;
 }
@@ -565,11 +578,13 @@ MemOpen(const char *path, int flags, mode_t mode)
 void
 MemTruncate(File file, size_t size)
 {
+  LWLockAcquire(AddrTableLock, LW_EXCLUSIVE);
   Vfd *vfdP = &VfdCache[file];
   struct AddrTableEntry *entry;
   entry = get_entry(vfdP);
   entry->memSize = size; 
   DO_DB(elog(LOG,"MemTruncate %s %lu\n", vfdP->fileName, entry->memSize));
+  LWLockRelease(AddrTableLock);
 }
 
 #endif
@@ -1011,6 +1026,7 @@ durable_rename(const char *oldfile, const char *newfile, int elevel)
 int
 durable_unlink(const char *fname, int elevel)
 {
+  elog(LOG, "Durable unlink - %s\n", fname);
 	if (unlink(fname) < 0)
 	{
 		ereport(elevel,
@@ -1108,8 +1124,6 @@ static void * mycopyfunction(void *dest, const void *src, Size keysize)
   return (void *)ret;
 }
 
-
-
 /*
  * InitFileAccess --- initialize this module during backend startup
  *
@@ -1141,13 +1155,12 @@ InitFileAccess(void)
 	SizeVfdCache = 1;
 
 #ifdef USE_SLSMEM
+  LWLockAcquire(AddrTableLock, LW_EXCLUSIVE);
   hash_ctl.keysize = ADDRMAX;
   hash_ctl.entrysize = sizeof(struct AddrTableEntry);
-  hash_ctl.match = mycomparefunction;
-  hash_ctl.keycopy = mycopyfunction;
-
-  AddrTable = hash_create("Memory Address Table", 20000, &hash_ctl, HASH_ELEM | HASH_STRINGS | HASH_COMPARE | HASH_KEYCOPY);
-  table = addr_create(CurrentMemoryContext, 200, NULL);
+  AddrTable = ShmemInitHash("Memory Address Table", 512, 512, &hash_ctl, HASH_ELEM | HASH_STRINGS);
+  LWLockRelease(AddrTableLock);
+  //table = addr_create(1024, NULL);
 #endif
 }
 
@@ -1885,7 +1898,7 @@ PathNameOpenFilePerm(const char *fileName, int fileFlags, mode_t fileMode)
 #ifdef USE_SLSMEM
 	DO_DB(elog(LOG, "PathNameOpenFilePerm isMem: %d",
 			   isMem));
-  if (isMem) {
+  if (isMem && (GetProcessingMode() != BootstrapProcessing )) {
 	  vfdP->fd = MemOpen(fileName, fileFlags, fileMode);
     vfdP->isMem = true;
   } else {
