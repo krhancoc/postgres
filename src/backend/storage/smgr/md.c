@@ -41,6 +41,16 @@
 #include "utils/hsearch.h"
 #include "utils/memutils.h"
 
+#ifdef USE_SLSMEM
+#include <sys/types.h>
+#include <sys/mman.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <fcntl.h>
+
+#include "common/file_perm.h"
+#endif
+
 /*
  *	The magnetic disk storage manager keeps track of open file
  *	descriptors in its own descriptor pool.  This is done to make it
@@ -142,7 +152,6 @@ static MdfdVec *_mdfd_getseg(SMgrRelation reln, ForkNumber forkno,
 static BlockNumber _mdnblocks(SMgrRelation reln, ForkNumber forknum,
 							  MdfdVec *seg);
 
-
 /*
  *	mdinit() -- Initialize private state for magnetic disk storage manager.
  */
@@ -152,7 +161,7 @@ mdinit(void)
 	MdCxt = AllocSetContextCreate(TopMemoryContext,
 								  "MdSmgr",
 								  ALLOCSET_DEFAULT_SIZES);
-}
+ }
 
 /*
  *	mdexists() -- Does the physical file exist?
@@ -205,14 +214,21 @@ mdcreate(SMgrRelation reln, ForkNumber forkNum, bool isRedo)
 
 	path = relpath(reln->smgr_rnode, forkNum);
 
+#ifdef USE_SLSMEM
+	fd = PathNameOpenFileMem(path, O_RDWR | O_CREAT | O_EXCL | PG_BINARY);
+#else
 	fd = PathNameOpenFile(path, O_RDWR | O_CREAT | O_EXCL | PG_BINARY);
-
+#endif
 	if (fd < 0)
 	{
 		int			save_errno = errno;
 
 		if (isRedo)
+#ifdef USE_SLSMEM
+	    fd = PathNameOpenFileMem(path, O_RDWR | PG_BINARY);
+#else
 			fd = PathNameOpenFile(path, O_RDWR | PG_BINARY);
+#endif
 		if (fd < 0)
 		{
 			/* be sure to report the error reported by create, not open */
@@ -361,6 +377,7 @@ mdunlinkfork(RelFileNodeBackend rnode, ForkNumber forkNum, bool isRedo)
 		/* Next unlink the file, unless it was already found to be missing */
 		if (ret >= 0 || errno != ENOENT)
 		{
+      elog(LOG, "Unlinking path %s", path);
 			ret = unlink(path);
 			if (ret < 0 && errno != ENOENT)
 			{
@@ -523,7 +540,11 @@ mdopenfork(SMgrRelation reln, ForkNumber forknum, int behavior)
 
 	path = relpath(reln->smgr_rnode, forknum);
 
+#ifdef USE_SLSMEM
+	fd = PathNameOpenFileMem(path, O_RDWR | PG_BINARY);
+#else
 	fd = PathNameOpenFile(path, O_RDWR | PG_BINARY);
+#endif
 
 	if (fd < 0)
 	{
@@ -683,7 +704,6 @@ mdread(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 
 	v = _mdfd_getseg(reln, forknum, blocknum, false,
 					 EXTENSION_FAIL | EXTENSION_CREATE_RECOVERY);
-
 	seekpos = (off_t) BLCKSZ * (blocknum % ((BlockNumber) RELSEG_SIZE));
 
 	Assert(seekpos < (off_t) BLCKSZ * RELSEG_SIZE);
@@ -1188,7 +1208,11 @@ _mdfd_openseg(SMgrRelation reln, ForkNumber forknum, BlockNumber segno,
 	fullpath = _mdfd_segpath(reln, forknum, segno);
 
 	/* open the file */
+#ifdef USE_SLSMEM
+	fd = PathNameOpenFileMem(fullpath, O_RDWR | PG_BINARY | oflags);
+#else
 	fd = PathNameOpenFile(fullpath, O_RDWR | PG_BINARY | oflags);
+#endif
 
 	pfree(fullpath);
 
@@ -1356,8 +1380,8 @@ static BlockNumber
 _mdnblocks(SMgrRelation reln, ForkNumber forknum, MdfdVec *seg)
 {
 	off_t		len;
-
 	len = FileSize(seg->mdfd_vfd);
+
 	if (len < 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
@@ -1397,7 +1421,11 @@ mdsyncfiletag(const FileTag *ftag, char *path)
 		strlcpy(path, p, MAXPGPATH);
 		pfree(p);
 
+#ifdef USE_SLSMEM
+		file = PathNameOpenFileMem(path, O_RDWR | PG_BINARY);
+#else
 		file = PathNameOpenFile(path, O_RDWR | PG_BINARY);
+#endif
 		if (file < 0)
 			return -1;
 		need_to_close = true;

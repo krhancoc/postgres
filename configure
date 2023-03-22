@@ -736,6 +736,7 @@ LZ4_CFLAGS
 with_lz4
 with_zlib
 with_system_tzdata
+with_slsmem
 with_slswal
 with_libxslt
 XML2_LIBS
@@ -901,6 +902,7 @@ with_ossp_uuid
 with_libxml
 with_libxslt
 with_slswal
+with_slsmem
 with_overwrite
 with_system_tzdata
 with_zlib
@@ -1622,6 +1624,7 @@ Optional Packages:
   --with-libxml           build with XML support
   --with-libxslt          use XSLT support when building contrib/xml2
   --with-slswal           use the SLS WAL
+  --with-slsmem           use SLS Shared memory
   --with-overwrite=OVERWRITE
                           Use new pg_wal location
   --with-system-tzdata=DIR
@@ -9945,6 +9948,40 @@ else $as_nop
 fi
 
 fi
+
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking Build with SLS Shared memory regions" >&5
+printf %s "checking Build with SLS Shared memory regions... " >&6; }
+
+
+
+# Check whether --with-slsmem was given.
+if test ${with_slsmem+y}
+then :
+  withval=$with_slsmem;
+  case $withval in
+    yes)
+
+printf "%s\n" "#define USE_SLSMEM 1" >>confdefs.h
+
+      ;;
+    no)
+      :
+      ;;
+    *)
+      as_fn_error $? "no argument expected for --with-slsmem option" "$LINENO" 5
+      ;;
+  esac
+
+else $as_nop
+  with_slsmem=no
+
+fi
+
+
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $with_slsmem" >&5
+printf "%s\n" "$with_slsmem" >&6; }
+
+
 
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking Overwrite pg_wal location" >&5
 printf %s "checking Overwrite pg_wal location... " >&6; }
