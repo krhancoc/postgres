@@ -104,7 +104,7 @@
 #include "utils/guc.h"
 #include "utils/resowner_private.h"
 
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/mman.h>
@@ -206,11 +206,11 @@ int			recovery_init_sync_method = RECOVERY_INIT_SYNC_METHOD_FSYNC;
 #define FD_DELETE_AT_CLOSE	(1 << 0)	/* T = delete when closed */
 #define FD_CLOSE_AT_EOXACT	(1 << 1)	/* T = close at eoXact */
 #define FD_TEMP_FILE_LIMIT	(1 << 2)	/* T = respect temp_file_limit */
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
 
 #endif
 
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
 #define ADDRMAX (256)
 #endif
 
@@ -227,7 +227,7 @@ typedef struct vfd
 	/* NB: fileName is malloc'd, and must be free'd when closing the VFD */
 	int			fileFlags;		/* open(2) flags for (re)opening the file */
 	mode_t		fileMode;		/* mode to pass to open(2) */
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
   bool      isMem;
 #endif
 } Vfd;
@@ -313,7 +313,7 @@ static Oid *tempTableSpaces = NULL;
 static int	numTempTableSpaces = -1;
 static int	nextTempTableSpace = 0;
 
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
 
 /*
  * Helper function for filemap hash table.
@@ -399,7 +399,7 @@ static void unlink_if_exists_fname(const char *fname, bool isdir, int elevel);
 
 static int	fsync_parent_path(const char *fname, int elevel);
 
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
 
 static struct AddrTableEntry *
 get_entry(Vfd *vfd) {
@@ -455,7 +455,6 @@ MemWrite(Vfd *vfd, char *buffer, size_t size, off_t offset)
 
   DO_DB(elog(LOG,"Memwrite %s %p %lu %lu %lu\n", vfd->fileName, entry->addr, size, offset));
   memcpy((char *)entry->addr + offset, buffer, size);
-  msync(entry->addr, 0, MS_ASYNC);
 
   errno = 0;
   return size;
@@ -465,7 +464,6 @@ static int
 MemOpen(const char *path, int flags, mode_t mode)
 {
   int fd;
-  bool found;
   void *addr;
   struct AddrTableEntry *foundele = NULL;
 
@@ -494,7 +492,6 @@ MemOpen(const char *path, int flags, mode_t mode)
   if (exist_but_new) {
     /* Quickly open a file so its there*/
     size_t size;
-    size_t maxSize;
 
     if (flags & O_CREAT) {
       size = 0;
@@ -1076,7 +1073,7 @@ static void * mycopyfunction(void *dest, const void *src, Size keysize)
 void
 InitFileAccess(void)
 {
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
   HASHCTL hash_ctl;
 #endif
 
@@ -1094,7 +1091,7 @@ InitFileAccess(void)
 
 	SizeVfdCache = 1;
 
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
   hash_ctl.keysize = ADDRMAX;
   hash_ctl.entrysize = sizeof(struct AddrTableEntry);
   AddrTable = hash_create("Memory Address Table", 512, &hash_ctl, HASH_ELEM | HASH_STRINGS);
@@ -1494,7 +1491,7 @@ LruDelete(File file)
 	 * Close the file.  We aren't expecting this to fail; if it does, better
 	 * to leak the FD than to mess up our internal state.
 	 */
-#ifdef USE_SLSMEM 
+#ifdef USE_MMAP 
 	if (!vfdP->isMem && (close(vfdP->fd) != 0))
 #else
 	if (close(vfdP->fd) != 0)
@@ -1779,14 +1776,14 @@ FileInvalidate(File file)
 File
 PathNameOpenFile(const char *fileName, int fileFlags)
 {
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
 	return PathNameOpenFilePerm(fileName, fileFlags, pg_file_create_mode, false);
 #else
 	return PathNameOpenFilePerm(fileName, fileFlags, pg_file_create_mode);
 #endif
 }
 
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
 File
 PathNameOpenFileMem(const char *fileName, int fileFlags)
 {
@@ -1802,7 +1799,7 @@ PathNameOpenFileMem(const char *fileName, int fileFlags)
  * it will be interpreted relative to the process' working directory
  * (which should always be $PGDATA when this code is running).
  */
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
 File
 PathNameOpenFilePerm(const char *fileName, int fileFlags, mode_t fileMode, bool isMem)
 #else
@@ -1832,7 +1829,7 @@ PathNameOpenFilePerm(const char *fileName, int fileFlags, mode_t fileMode)
 	/* Close excess kernel FDs. */
 	ReleaseLruFiles();
 
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
 	DO_DB(elog(LOG, "PathNameOpenFilePerm isMem: %d %d %d",
 			   isMem, IsBootstrapProcessingMode(), IsInitProcessingMode()));
   if (isMem && !IsBootstrapProcessingMode() && !IsInitProcessingMode()) {
@@ -2356,7 +2353,7 @@ FileWriteback(File file, off_t offset, off_t nbytes, uint32 wait_event_info)
 	if (returnCode < 0)
 		return;
 
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
   if (VfdCache[file].isMem) {
     return;
   }
@@ -2389,7 +2386,7 @@ FileRead(File file, char *buffer, int amount, off_t offset,
 
 retry:
 	pgstat_report_wait_start(wait_event_info);
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
   if (vfdP->isMem) {
 	  returnCode = MemRead(vfdP, buffer, amount, offset);
   } else {
@@ -2479,7 +2476,7 @@ FileWrite(File file, char *buffer, int amount, off_t offset,
 retry:
 	errno = 0;
 	pgstat_report_wait_start(wait_event_info);
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
   if (vfdP->isMem) {
     returnCode = MemWrite(&VfdCache[file], buffer, amount, offset);
   } else {
@@ -2551,11 +2548,15 @@ FileSync(File file, uint32 wait_event_info)
 	if (returnCode < 0)
 		return returnCode;
 
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
   if (!VfdCache[file].isMem) {
     pgstat_report_wait_start(wait_event_info);
     returnCode = pg_fsync(VfdCache[file].fd);
     pgstat_report_wait_end();
+  } else {
+    struct AddrTableEntry *entry;
+    entry = get_entry(&VfdCache[file]);
+    msync(entry->addr, 0, MS_ASYNC);
   }
 #else
 	pgstat_report_wait_start(wait_event_info);

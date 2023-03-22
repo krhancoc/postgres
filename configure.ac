@@ -1054,11 +1054,11 @@ if test "$with_slswal" = yes; then
   AC_CHECK_LIB(sls, slsfs_create_wal, [], [AC_MSG_ERROR([library 'sls' is required to build with WAL support])])
 fi
 
-AC_MSG_CHECKING([Build with SLS Shared memory regions])
-PGAC_ARG_BOOL(with, slsmem, no, [use SLS Shared memory],
-              [AC_DEFINE([USE_SLSMEM], 1, [Define to 1 to use SLS Shared memory (--with-slsmem)])])
-AC_MSG_RESULT([$with_slsmem])
-AC_SUBST(with_slsmem)
+AC_MSG_CHECKING([Build with mmaped shared memory regions for relation files])
+PGAC_ARG_BOOL(with, mmap, no, [use SLS Shared memory],
+              [AC_DEFINE([USE_MMAP], 1, [Define to 1 to back relation files with mmap during normal running of postgres (--with-mmap)])])
+AC_MSG_RESULT([$with_mmap])
+AC_SUBST(with_mmap)
 
 
 AC_MSG_CHECKING([Overwrite pg_wal location])

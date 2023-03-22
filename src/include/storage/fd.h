@@ -101,7 +101,7 @@ extern PGDLLIMPORT int max_safe_fds;
 
 /* Operations on virtual Files --- equivalent to Unix kernel file ops */
 extern File PathNameOpenFile(const char *fileName, int fileFlags);
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
 extern File PathNameOpenFileMem(const char *fileName, int fileFlags);
 extern File PathNameOpenFilePerm(const char *fileName, int fileFlags, mode_t fileMode, bool isMem);
 #else
@@ -197,7 +197,7 @@ extern int	durable_rename_excl(const char *oldfile, const char *newfile, int log
 extern void SyncDataDirectory(void);
 extern int	data_sync_elevel(int elevel);
 
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
 extern int MemTruncate(File file, size_t size);
 #endif
 

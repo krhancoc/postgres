@@ -41,7 +41,7 @@
 #include "utils/hsearch.h"
 #include "utils/memutils.h"
 
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <sys/ipc.h>
@@ -214,7 +214,7 @@ mdcreate(SMgrRelation reln, ForkNumber forkNum, bool isRedo)
 
 	path = relpath(reln->smgr_rnode, forkNum);
 
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
 	fd = PathNameOpenFileMem(path, O_RDWR | O_CREAT | O_EXCL | PG_BINARY);
 #else
 	fd = PathNameOpenFile(path, O_RDWR | O_CREAT | O_EXCL | PG_BINARY);
@@ -224,7 +224,7 @@ mdcreate(SMgrRelation reln, ForkNumber forkNum, bool isRedo)
 		int			save_errno = errno;
 
 		if (isRedo)
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
 	    fd = PathNameOpenFileMem(path, O_RDWR | PG_BINARY);
 #else
 			fd = PathNameOpenFile(path, O_RDWR | PG_BINARY);
@@ -540,7 +540,7 @@ mdopenfork(SMgrRelation reln, ForkNumber forknum, int behavior)
 
 	path = relpath(reln->smgr_rnode, forknum);
 
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
 	fd = PathNameOpenFileMem(path, O_RDWR | PG_BINARY);
 #else
 	fd = PathNameOpenFile(path, O_RDWR | PG_BINARY);
@@ -1208,7 +1208,7 @@ _mdfd_openseg(SMgrRelation reln, ForkNumber forknum, BlockNumber segno,
 	fullpath = _mdfd_segpath(reln, forknum, segno);
 
 	/* open the file */
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
 	fd = PathNameOpenFileMem(fullpath, O_RDWR | PG_BINARY | oflags);
 #else
 	fd = PathNameOpenFile(fullpath, O_RDWR | PG_BINARY | oflags);
@@ -1421,7 +1421,7 @@ mdsyncfiletag(const FileTag *ftag, char *path)
 		strlcpy(path, p, MAXPGPATH);
 		pfree(p);
 
-#ifdef USE_SLSMEM
+#ifdef USE_MMAP
 		file = PathNameOpenFileMem(path, O_RDWR | PG_BINARY);
 #else
 		file = PathNameOpenFile(path, O_RDWR | PG_BINARY);
