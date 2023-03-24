@@ -57,9 +57,58 @@
 #include "utils/resowner_private.h"
 #include "utils/timestamp.h"
 
+#ifdef USE_BUFDIRECT
+
+#include <sys/mman.h>
+
+#include "storage/fd.h"
+#include "common/relpath.h"
+
+char ZEROES[BLCKSZ];
+
+#endif
+
 
 /* Note: these two macros only work on shared buffers, not local ones! */
+#ifdef USE_BUFDIRECT
+
+#define OldBufHdrGetBlock(bufHdr)	((Block) (BufferBlocks + ((Size) (bufHdr)->buf_id) * BLCKSZ))
+
+/* 
+ * TODO: Fix this slowdown, we are going from an array lookup to much more than that
+ * so I can see this being quite a big slowdown.
+ * */
+static void *BufHdrGetBlock(BufferDesc *bufHdr) {
+  SMgrRelation smgr;
+  uintptr_t myaddr = 0;
+  BufferTag *tag = &bufHdr->tag;
+
+
+  if (IsBootstrapProcessingMode()) {
+    return OldBufHdrGetBlock(bufHdr);
+  }
+
+	smgr = smgropen(tag->rnode, InvalidBackendId);
+
+  MdGetAddr(smgr, tag->forkNum, tag->blockNum, &myaddr);
+  return myaddr;
+}
+
+void *BufferGetBlock(Buffer buffer)
+{
+	if (BufferIsLocal(buffer))
+	  return LocalBufferBlockPointers[-(buffer) - 1];
+
+  BufferDesc *hdr = GetBufferDescriptor(buffer - 1);
+  return BufHdrGetBlock(hdr);
+}
+
+#else
+
 #define BufHdrGetBlock(bufHdr)	((Block) (BufferBlocks + ((Size) (bufHdr)->buf_id) * BLCKSZ))
+
+#endif
+
 #define BufferGetLSN(bufHdr)	(PageGetLSN(BufHdrGetBlock(bufHdr)))
 
 /* Note: this macro only works on local buffers, not shared ones! */
@@ -990,6 +1039,12 @@ ReadBuffer_common(SMgrRelation smgr, char relpersistence, ForkNumber forkNum,
 
 	if (isExtend)
 	{
+#ifdef USE_BUFDIRECT
+    smgrextend(smgr, forkNum, blockNum, ZEROES, false);
+    if (IsBootstrapProcessingMode()) {
+		  MemSet((char *) bufBlock, 0, BLCKSZ);
+    }
+#else
 		/* new buffers are zero-filled */
 		MemSet((char *) bufBlock, 0, BLCKSZ);
 		/* don't set checksum for all-zero page */
@@ -1001,6 +1056,7 @@ ReadBuffer_common(SMgrRelation smgr, char relpersistence, ForkNumber forkNum,
 		 * doing so defeats the 'delayed allocation' mechanism, leading to
 		 * increased file fragmentation.
 		 */
+#endif
 	}
 	else
 	{
@@ -1017,6 +1073,9 @@ ReadBuffer_common(SMgrRelation smgr, char relpersistence, ForkNumber forkNum,
 
 			if (track_io_timing)
 				INSTR_TIME_SET_CURRENT(io_start);
+      /* We are using regular buffers here during init, after that the bufBlock
+       * is the mmaped page
+       */
 
 			smgrread(smgr, forkNum, blockNum, (char *) bufBlock);
 
@@ -2629,6 +2688,10 @@ InitBufferPoolAccess(void)
 	 */
 	Assert(MyProc != NULL);
 	on_shmem_exit(AtProcExit_Buffers, 0);
+
+#ifdef USE_BUFDIRECT
+  memset(ZEROES, 0, BLCKSZ);
+#endif
 }
 
 /*
@@ -2888,6 +2951,36 @@ FlushBuffer(BufferDesc *buf, SMgrRelation reln)
 	if (buf_state & BM_PERMANENT)
 		XLogFlush(recptr);
 
+#ifdef USE_BUFDIRECT
+
+	bufBlock = BufHdrGetBlock(buf);
+
+  if (IsBootstrapProcessingMode()) {
+    /*
+     * Update page checksum if desired.  Since we have only shared lock on the
+     * buffer, other processes might be updating hint bits in it, so we must
+     * copy the page to private storage if we do checksumming.
+     */
+    bufToWrite = PageSetChecksumCopy((Page) bufBlock, buf->tag.blockNum);
+
+    if (track_io_timing)
+      INSTR_TIME_SET_CURRENT(io_start);
+
+    /*
+     * bufToWrite is either the shared buffer or a copy, as appropriate.
+     */
+    smgrwrite(reln,
+          buf->tag.forkNum,
+          buf->tag.blockNum,
+          bufToWrite,
+          false);
+
+  } else {
+    msync(bufBlock, BLCKSZ, MS_ASYNC);
+  }
+
+#else
+
 	/*
 	 * Now it's safe to write buffer to disk. Note that no one else should
 	 * have been able to write it while we were busy with log flushing because
@@ -2913,6 +3006,8 @@ FlushBuffer(BufferDesc *buf, SMgrRelation reln)
 			  buf->tag.blockNum,
 			  bufToWrite,
 			  false);
+
+#endif
 
 	if (track_io_timing)
 	{

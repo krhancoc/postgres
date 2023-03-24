@@ -78,6 +78,7 @@ InitBufferPool(void)
 						NBuffers * sizeof(BufferDescPadded),
 						&foundDescs);
 
+  // TODO: Make NBuffers zero.
 	BufferBlocks = (char *)
 		ShmemInitStruct("Buffer Blocks",
 						NBuffers * (Size) BLCKSZ, &foundBufs);

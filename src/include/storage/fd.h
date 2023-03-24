@@ -55,6 +55,18 @@ struct iovec;					/* avoid including port/pg_iovec.h here */
 
 typedef int File;
 
+#ifdef USE_MMAP
+
+#define ADDRMAX (256)
+
+struct AddrTableEntry {
+  const char key[ADDRMAX];
+  char status;
+  void *addr;
+};
+
+#endif
+
 
 /* GUC parameter */
 extern PGDLLIMPORT int max_files_per_process;
@@ -199,6 +211,7 @@ extern int	data_sync_elevel(int elevel);
 
 #ifdef USE_MMAP
 extern int MemTruncate(File file, size_t size);
+extern void GetFileAddr(File file, uintptr_t *ptr);
 #endif
 
 /* Filename components */

@@ -1060,6 +1060,18 @@ PGAC_ARG_BOOL(with, mmap, no, [use SLS Shared memory],
 AC_MSG_RESULT([$with_mmap])
 AC_SUBST(with_mmap)
 
+AC_MSG_CHECKING([Build with buffer cache directly reading from MMAPed relation regions, must be build with --with-mmap])
+PGAC_ARG_BOOL(with, bufdirect, no, [Pass through buffer cache],
+              [AC_DEFINE([USE_BUFDIRECT], 1, [Define to 1 so buffer cache IO passes through to mmaped regions (--with-bufdirect)])])
+AC_MSG_RESULT([$with_bufdirect])
+AC_SUBST(with_bufdirect)
+
+if test "$with_bufdirect" = yes; then
+  if test "$with_mmap" = no; then
+    AC_MSG_ERROR([--with-bufdirect must be build with --with-mmap])
+  fi
+fi
+
 
 AC_MSG_CHECKING([Overwrite pg_wal location])
 PGAC_ARG_REQ(with, overwrite, [OVERWRITE], [Use new pg_wal location],

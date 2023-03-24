@@ -923,6 +923,10 @@
 /* Define to 1 to build with BSD Authentication support. (--with-bsd-auth) */
 #undef USE_BSD_AUTH
 
+/* Define to 1 so buffer cache IO passes through to mmaped regions
+   (--with-bufdirect) */
+#undef USE_BUFDIRECT
+
 /* Define to build with ICU support. (--with-icu) */
 #undef USE_ICU
 

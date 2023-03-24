@@ -736,6 +736,7 @@ LZ4_CFLAGS
 with_lz4
 with_zlib
 with_system_tzdata
+with_bufdirect
 with_mmap
 with_slswal
 with_libxslt
@@ -903,6 +904,7 @@ with_libxml
 with_libxslt
 with_slswal
 with_mmap
+with_bufdirect
 with_overwrite
 with_system_tzdata
 with_zlib
@@ -1625,6 +1627,7 @@ Optional Packages:
   --with-libxslt          use XSLT support when building contrib/xml2
   --with-slswal           use the SLS WAL
   --with-mmap             use SLS Shared memory
+  --with-bufdirect        Pass through buffer cache
   --with-overwrite=OVERWRITE
                           Use new pg_wal location
   --with-system-tzdata=DIR
@@ -9981,6 +9984,45 @@ fi
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $with_mmap" >&5
 printf "%s\n" "$with_mmap" >&6; }
 
+
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking Build with buffer cache directly reading from MMAPed relation regions, must be build with --with-mmap" >&5
+printf %s "checking Build with buffer cache directly reading from MMAPed relation regions, must be build with --with-mmap... " >&6; }
+
+
+
+# Check whether --with-bufdirect was given.
+if test ${with_bufdirect+y}
+then :
+  withval=$with_bufdirect;
+  case $withval in
+    yes)
+
+printf "%s\n" "#define USE_BUFDIRECT 1" >>confdefs.h
+
+      ;;
+    no)
+      :
+      ;;
+    *)
+      as_fn_error $? "no argument expected for --with-bufdirect option" "$LINENO" 5
+      ;;
+  esac
+
+else $as_nop
+  with_bufdirect=no
+
+fi
+
+
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $with_bufdirect" >&5
+printf "%s\n" "$with_bufdirect" >&6; }
+
+
+if test "$with_bufdirect" = yes; then
+  if test "$with_mmap" = no; then
+    as_fn_error $? "--with-bufdirect must be build with --with-mmap" "$LINENO" 5
+  fi
+fi
 
 
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking Overwrite pg_wal location" >&5

@@ -24,6 +24,10 @@
 #include "storage/buf_internals.h"
 #include "storage/bufmgr.h"
 
+#ifdef USE_BUFDIRECT
+#include "storage/fd.h"
+#endif
+
 /* entry for buffer lookup hashtable */
 typedef struct
 {

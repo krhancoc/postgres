@@ -126,6 +126,9 @@ extern PGDLLIMPORT int32 *LocalRefCount;
 	(bufnum) != InvalidBuffer  \
 )
 
+#ifdef USE_BUFDIRECT
+void *BufferGetBlock(Buffer buffer);
+#else
 /*
  * BufferGetBlock
  *		Returns a reference to a disk page image associated with a buffer.
@@ -141,6 +144,7 @@ extern PGDLLIMPORT int32 *LocalRefCount;
 	: \
 		(Block) (BufferBlocks + ((Size) ((buffer) - 1)) * BLCKSZ) \
 )
+#endif
 
 /*
  * BufferGetPageSize

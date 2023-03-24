@@ -1,4 +1,4 @@
-/*-------------------------------------------------------------------------
+/*-------------------------------------------------------------------------fd.c
  *
  * md.c
  *	  This code manages relations that reside on magnetic disk.
@@ -1478,3 +1478,21 @@ mdfiletagmatches(const FileTag *ftag, const FileTag *candidate)
 	 */
 	return ftag->rnode.dbNode == candidate->rnode.dbNode;
 }
+
+
+#ifdef USE_BUFDIRECT
+void
+MdGetAddr(SMgrRelation reln, ForkNumber forknum, BlockNumber blkno, uintptr_t *ptr)
+{
+	MdfdVec    *v;
+  uintptr_t startaddr;
+  uintptr_t offaddr;
+
+	v = mdopenfork(reln, forknum, EXTENSION_RETURN_NULL);
+  GetFileAddr(v->mdfd_vfd, &startaddr);
+  offaddr = startaddr + (blkno * BLCKSZ);
+  /*DO_DB(elog(LOG, "MdGetAddr %s", FilePathName(v->mdfd_vfd))); */
+  *ptr = offaddr;
+  return;
+}
+#endif

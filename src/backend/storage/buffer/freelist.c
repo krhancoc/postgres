@@ -638,7 +638,7 @@ GetBufferFromRing(BufferAccessStrategy strategy, uint32 *buf_state)
 	 * there, but it might've been decremented by clock sweep since then). A
 	 * higher usage_count indicates someone else has touched the buffer, so we
 	 * shouldn't re-use it.
-	 */
+  */
 	buf = GetBufferDescriptor(bufnum - 1);
 	local_buf_state = LockBufHdr(buf);
 	if (BUF_STATE_GET_REFCOUNT(local_buf_state) == 0

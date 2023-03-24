@@ -210,10 +210,6 @@ int			recovery_init_sync_method = RECOVERY_INIT_SYNC_METHOD_FSYNC;
 
 #endif
 
-#ifdef USE_MMAP
-#define ADDRMAX (256)
-#endif
-
 typedef struct vfd
 {
 	int			fd;				/* current FD, or VFD_CLOSED if none */
@@ -315,23 +311,6 @@ static int	nextTempTableSpace = 0;
 
 #ifdef USE_MMAP
 
-/*
- * Helper function for filemap hash table.
- */
-static uint32
-hash_string_pointer(const char *s)
-{
-	unsigned char *ss = (unsigned char *) s;
-
-	return hash_bytes(ss, strlen(s));
-}
-
-struct AddrTableEntry {
-  const char key[ADDRMAX];
-  char status;
-  void *addr;
-};
-
 static HTAB *AddrTable = NULL;
 
 #endif
@@ -426,7 +405,8 @@ MemRead(Vfd *vfd, char *buffer, size_t size, off_t offset)
     size = fsize - offset;
   }
 
-  DO_DB(elog(LOG,"MemRead %s %p %lu %lu %lu\n", vfd->fileName, entry->addr, size, offset, fsize));
+  DO_DB(elog(LOG, "MemRead %s %p %p %lu %lu %lu\n", vfd->fileName, (char *)entry->addr + offset, buffer,
+      size, offset, fsize));
   memcpy(buffer, (char *)entry->addr + offset, size);
 
   errno = 0;
@@ -499,8 +479,8 @@ MemOpen(const char *path, int flags, mode_t mode)
 	    size = lseek(fd, 0, SEEK_END);
     }
 
-    DO_DB(elog(LOG, "MemOpen Create: %s %lu %lu", path, size, maxSize));
     addr = mmap(NULL, MMAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    DO_DB(elog(LOG, "MemOpen Create: %s %lu %lu %p", path, size, size, addr));
     if (addr == (void *)(-1)) {
       elog(ERROR, "Could not mmap %d", errno);
     }
@@ -522,6 +502,29 @@ MemOpen(const char *path, int flags, mode_t mode)
   DO_DB(elog(LOG, "MemOpen Open: %s %p", path, foundele));
 
   return fd;
+}
+
+
+void
+GetFileAddr(File file, uintptr_t *ptr) {
+  struct vfd *vfdP;
+  struct AddrTableEntry *entry;
+
+retry:
+
+	vfdP = &VfdCache[file];
+  entry = hash_search(AddrTable, vfdP->fileName, HASH_FIND, NULL);
+  if (entry == NULL) {
+    DO_DB(elog(LOG, "Could not find anything for %s\n", vfdP->fileName));
+    if (strlen(vfdP->fileName) > 0) {
+      int fd = MemOpen(vfdP->fileName, O_RDWR | PG_BINARY, 0);
+      close(fd);
+      goto retry;
+    }
+    elog(ERROR, "Could not find anything for %s\n", vfdP->fileName);
+  }
+
+  *ptr = (uintptr_t) entry->addr;
 }
 
 #endif
@@ -1044,21 +1047,6 @@ durable_rename_excl(const char *oldfile, const char *newfile, int elevel)
 		return -1;
 
 	return 0;
-}
-
-static int mycomparefunction(const void *key1, const void *key2,
-								Size keysize)
-{
-  DO_DB(elog(LOG, "COMPARE %s - %s, %d\n", (char *)key1, (char *)key2, strncmp(key1, key2, keysize - 1)));
-  return strncmp(key1, key2, keysize - 1);
-}
-
-static void * mycopyfunction(void *dest, const void *src, Size keysize)
-{
-  DO_DB(elog(LOG,"COPY %s\n", (char *)src));
-  size_t ret = strlcpy(dest, src, keysize);
-  DO_DB(elog(LOG, "COPY DONE %s\n", (char *)dest));
-  return (void *)ret;
 }
 
 /*
@@ -1832,7 +1820,7 @@ PathNameOpenFilePerm(const char *fileName, int fileFlags, mode_t fileMode)
 #ifdef USE_MMAP
 	DO_DB(elog(LOG, "PathNameOpenFilePerm isMem: %d %d %d",
 			   isMem, IsBootstrapProcessingMode(), IsInitProcessingMode()));
-  if (isMem && !IsBootstrapProcessingMode() && !IsInitProcessingMode()) {
+  if (isMem && !IsBootstrapProcessingMode()) {
 	  vfdP->fd = MemOpen(fileName, fileFlags, fileMode);
     vfdP->isMem = true;
   } else {
@@ -2354,9 +2342,12 @@ FileWriteback(File file, off_t offset, off_t nbytes, uint32 wait_event_info)
 		return;
 
 #ifdef USE_MMAP
+  struct AddrTableEntry *entry;
   if (VfdCache[file].isMem) {
-    return;
+    entry = get_entry(&VfdCache[file]);
+    msync(entry->addr, 0, MS_ASYNC);
   }
+
 #endif
 
 	pgstat_report_wait_start(wait_event_info);

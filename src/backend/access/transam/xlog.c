@@ -4247,8 +4247,12 @@ GetMockAuthenticationNonce(void)
 bool
 DataChecksumsEnabled(void)
 {
+#ifdef USE_BUFDIRECT
+  return false;
+#else
 	Assert(ControlFile != NULL);
 	return (ControlFile->data_checksum_version > 0);
+#endif
 }
 
 /*
