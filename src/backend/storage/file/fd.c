@@ -1049,6 +1049,20 @@ durable_rename_excl(const char *oldfile, const char *newfile, int elevel)
 	return 0;
 }
 
+static void
+mmap_if_exists_fname(const char *fname, bool isdir, int elevel)
+{
+  int fd;
+
+	if (!isdir)
+	{
+		fd = MemOpen(fname, O_RDWR, 0);
+    close(fd);
+	}
+}
+
+
+
 /*
  * InitFileAccess --- initialize this module during backend startup
  *
@@ -1083,6 +1097,10 @@ InitFileAccess(void)
   hash_ctl.keysize = ADDRMAX;
   hash_ctl.entrysize = sizeof(struct AddrTableEntry);
   AddrTable = hash_create("Memory Address Table", 512, &hash_ctl, HASH_ELEM | HASH_STRINGS);
+#endif
+#ifdef USE_BUFDIRECT
+  walkdir("global", mmap_if_exists_fname, false, DEBUG1);
+  walkdir("base", mmap_if_exists_fname, false, DEBUG1);
 #endif
 }
 
