@@ -1095,10 +1095,6 @@ InitFileAccess(void)
   hash_ctl.entrysize = sizeof(struct AddrTableEntry);
   AddrTable = hash_create("Memory Address Table", 512, &hash_ctl, HASH_ELEM | HASH_STRINGS);
 #endif
-#ifdef USE_BUFDIRECT
-  walkdir("global", mmap_if_exists_fname, false, DEBUG1);
-  walkdir("base", mmap_if_exists_fname, false, DEBUG1);
-#endif
 }
 
 /*

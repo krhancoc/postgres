@@ -48,7 +48,9 @@
 #include <sys/shm.h>
 #include <fcntl.h>
 
+#include "catalog/pg_tablespace_d.h"
 #include "common/file_perm.h"
+#include "common/relpath.h"
 #endif
 
 /*
@@ -743,6 +745,15 @@ mdread(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 							blocknum, FilePathName(v->mdfd_vfd),
 							nbytes, BLCKSZ)));
 	}
+}
+
+void mdregistersync(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum) 
+{
+	MdfdVec    *v;
+	v = _mdfd_getseg(reln, forknum, blocknum, true,
+					 EXTENSION_FAIL | EXTENSION_CREATE_RECOVERY);
+	if(!SmgrIsTemp(reln))
+	  register_dirty_segment(reln, forknum, v);
 }
 
 /*
@@ -1481,18 +1492,90 @@ mdfiletagmatches(const FileTag *ftag, const FileTag *candidate)
 
 
 #ifdef USE_BUFDIRECT
+
+static void
+NoAllocGetRelationPath(Oid dbNode, Oid spcNode, Oid relNode,
+				int backendId, ForkNumber forkNumber, char *path)
+{
+	if (spcNode == GLOBALTABLESPACE_OID)
+	{
+		/* Shared system relations live in {datadir}/global */
+		Assert(dbNode == 0);
+		Assert(backendId == InvalidBackendId);
+		if (forkNumber != MAIN_FORKNUM)
+		  snprintf(path, 256, "global/%u_%s",
+							relNode, forkNames[forkNumber]);
+		else
+			snprintf(path, 256, "global/%u", relNode);
+	}
+	else if (spcNode == DEFAULTTABLESPACE_OID)
+	{
+		/* The default tablespace is {datadir}/base */
+		if (backendId == InvalidBackendId)
+		{
+			if (forkNumber != MAIN_FORKNUM)
+				snprintf(path, 256, "base/%u/%u_%s",
+								dbNode, relNode,
+								forkNames[forkNumber]);
+			else
+				snprintf(path, 256, "base/%u/%u",
+								dbNode, relNode);
+		}
+		else
+		{
+			if (forkNumber != MAIN_FORKNUM)
+				snprintf(path, 256, "base/%u/t%d_%u_%s",
+								dbNode, backendId, relNode,
+								forkNames[forkNumber]);
+			else
+				snprintf(path, 256, "base/%u/t%d_%u",
+								dbNode, backendId, relNode);
+		}
+	}
+	else
+	{
+		/* All other tablespaces are accessed via symlinks */
+		if (backendId == InvalidBackendId)
+		{
+			if (forkNumber != MAIN_FORKNUM)
+				snprintf(path, 256, "pg_tblspc/%u/%s/%u/%u_%s",
+								spcNode, TABLESPACE_VERSION_DIRECTORY,
+								dbNode, relNode,
+								forkNames[forkNumber]);
+			else
+				snprintf(path, 256, "pg_tblspc/%u/%s/%u/%u",
+								spcNode, TABLESPACE_VERSION_DIRECTORY,
+								dbNode, relNode);
+		}
+		else
+		{
+			if (forkNumber != MAIN_FORKNUM)
+				snprintf(path, 256, "pg_tblspc/%u/%s/%u/t%d_%u_%s",
+								spcNode, TABLESPACE_VERSION_DIRECTORY,
+								dbNode, backendId, relNode,
+								forkNames[forkNumber]);
+			else
+			  snprintf(path, 256, "pg_tblspc/%u/%s/%u/t%d_%u",
+								spcNode, TABLESPACE_VERSION_DIRECTORY,
+								dbNode, backendId, relNode);
+		}
+	}
+}
+
+#define noallocrelpathbackend(rnode, backend, forknum, path) \
+	NoAllocGetRelationPath((rnode).dbNode, (rnode).spcNode, (rnode).relNode, \
+					backend, forknum, path)
+
 void
 MdGetAddr(RelFileNode reln, ForkNumber forknum, BlockNumber blkno, uintptr_t *ptr)
 {
-	MdfdVec    *v;
   uintptr_t startaddr;
   uintptr_t offaddr;
+  char path[256];
 
-	char *path = relpathbackend(reln, InvalidBackendId, forknum);
+	noallocrelpathbackend(reln, InvalidBackendId, forknum, path);
   GetFileAddr(path, &startaddr);
-  pfree(path);
   offaddr = startaddr + (blkno * BLCKSZ);
-  /*DO_DB(elog(LOG, "MdGetAddr %s", FilePathName(v->mdfd_vfd))); */
   *ptr = offaddr;
   return;
 }

@@ -63,11 +63,11 @@
 
 #include "storage/fd.h"
 #include "common/relpath.h"
+#include "port/atomics.h"
 
 char ZEROES[BLCKSZ];
 
 #endif
-
 
 /* Note: these two macros only work on shared buffers, not local ones! */
 #ifdef USE_BUFDIRECT
@@ -2688,6 +2688,7 @@ InitBufferPoolAccess(void)
 
 #ifdef USE_BUFDIRECT
   memset(ZEROES, 0, BLCKSZ);
+  pg_atomic_init_u64(&count, 0);
 #endif
 }
 
@@ -2972,8 +2973,8 @@ FlushBuffer(BufferDesc *buf, SMgrRelation reln)
           bufToWrite,
           false);
 
-  } else {
-    msync(bufBlock, BLCKSZ, MS_ASYNC);
+  } else { 
+    mdregistersync(reln, buf->tag.forkNum, buf->tag.blockNum);
   }
 
 #else

@@ -53,6 +53,7 @@ extern bool mdfiletagmatches(const FileTag *ftag, const FileTag *candidate);
 
 void
 MdGetAddr(RelFileNode reln, ForkNumber forknum, BlockNumber blkno, uintptr_t *ptr);
+extern void mdregistersync(SMgrRelation, ForkNumber forknum, BlockNumber blocknum);
 
 #endif
 
