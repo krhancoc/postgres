@@ -1482,13 +1482,13 @@ mdfiletagmatches(const FileTag *ftag, const FileTag *candidate)
 
 #ifdef USE_BUFDIRECT
 void
-MdGetAddr(SMgrRelation reln, ForkNumber forknum, BlockNumber blkno, uintptr_t *ptr)
+MdGetAddr(RelFileNode reln, ForkNumber forknum, BlockNumber blkno, uintptr_t *ptr)
 {
 	MdfdVec    *v;
   uintptr_t startaddr;
   uintptr_t offaddr;
 
-	char *path = relpath(reln->smgr_rnode, forknum);
+	char *path = relpathbackend(reln, InvalidBackendId, forknum);
   GetFileAddr(path, &startaddr);
   pfree(path);
   offaddr = startaddr + (blkno * BLCKSZ);

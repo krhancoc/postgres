@@ -52,7 +52,7 @@ extern bool mdfiletagmatches(const FileTag *ftag, const FileTag *candidate);
 #ifdef USE_BUFDIRECT
 
 void
-MdGetAddr(SMgrRelation reln, ForkNumber forknum, BlockNumber blkno, uintptr_t *ptr);
+MdGetAddr(RelFileNode reln, ForkNumber forknum, BlockNumber blkno, uintptr_t *ptr);
 
 #endif
 

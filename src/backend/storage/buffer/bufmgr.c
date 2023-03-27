@@ -79,7 +79,6 @@ char ZEROES[BLCKSZ];
  * so I can see this being quite a big slowdown.
  * */
 static void *BufHdrGetBlock(BufferDesc *bufHdr) {
-  SMgrRelation smgr;
   uintptr_t myaddr = 0;
   BufferTag *tag = &bufHdr->tag;
 
@@ -88,9 +87,7 @@ static void *BufHdrGetBlock(BufferDesc *bufHdr) {
     return OldBufHdrGetBlock(bufHdr);
   }
 
-	smgr = smgropen(tag->rnode, InvalidBackendId);
-
-  MdGetAddr(smgr, tag->forkNum, tag->blockNum, &myaddr);
+  MdGetAddr(tag->rnode, tag->forkNum, tag->blockNum, &myaddr);
   return myaddr;
 }
 
