@@ -211,7 +211,7 @@ extern int	data_sync_elevel(int elevel);
 
 #ifdef USE_MMAP
 extern int MemTruncate(File file, size_t size);
-extern void GetFileAddr(File file, uintptr_t *ptr);
+extern void GetFileAddr(char *path, uintptr_t *ptr);
 #endif
 
 /* Filename components */

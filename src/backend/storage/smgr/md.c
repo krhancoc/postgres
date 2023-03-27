@@ -1488,8 +1488,9 @@ MdGetAddr(SMgrRelation reln, ForkNumber forknum, BlockNumber blkno, uintptr_t *p
   uintptr_t startaddr;
   uintptr_t offaddr;
 
-	v = mdopenfork(reln, forknum, EXTENSION_RETURN_NULL);
-  GetFileAddr(v->mdfd_vfd, &startaddr);
+	char *path = relpath(reln->smgr_rnode, forknum);
+  GetFileAddr(path, &startaddr);
+  pfree(path);
   offaddr = startaddr + (blkno * BLCKSZ);
   /*DO_DB(elog(LOG, "MdGetAddr %s", FilePathName(v->mdfd_vfd))); */
   *ptr = offaddr;

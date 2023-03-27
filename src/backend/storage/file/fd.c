@@ -506,22 +506,19 @@ MemOpen(const char *path, int flags, mode_t mode)
 
 
 void
-GetFileAddr(File file, uintptr_t *ptr) {
-  struct vfd *vfdP;
+GetFileAddr(char *path, uintptr_t *ptr) {
   struct AddrTableEntry *entry;
 
 retry:
-
-	vfdP = &VfdCache[file];
-  entry = hash_search(AddrTable, vfdP->fileName, HASH_FIND, NULL);
+  entry = hash_search(AddrTable, path, HASH_FIND, NULL);
   if (entry == NULL) {
-    DO_DB(elog(LOG, "Could not find anything for %s\n", vfdP->fileName));
-    if (strlen(vfdP->fileName) > 0) {
-      int fd = MemOpen(vfdP->fileName, O_RDWR | PG_BINARY, 0);
+    DO_DB(elog(LOG, "Could not find anything for %s\n", path));
+    if (strlen(path) > 0) {
+      int fd = MemOpen(path, O_RDWR | PG_BINARY, 0);
       close(fd);
       goto retry;
     }
-    elog(ERROR, "Could not find anything for %s\n", vfdP->fileName);
+    elog(ERROR, "Could not find anything for %s\n", path);
   }
 
   *ptr = (uintptr_t) entry->addr;
