@@ -2688,7 +2688,6 @@ InitBufferPoolAccess(void)
 
 #ifdef USE_BUFDIRECT
   memset(ZEROES, 0, BLCKSZ);
-  pg_atomic_init_u64(&count, 0);
 #endif
 }
 
