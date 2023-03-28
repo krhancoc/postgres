@@ -2356,14 +2356,13 @@ FileWriteback(File file, off_t offset, off_t nbytes, uint32 wait_event_info)
   struct AddrTableEntry *entry;
   if (VfdCache[file].isMem) {
     entry = get_entry(&VfdCache[file]);
-    msync(entry->addr, 0, MS_ASYNC);
+    msync(entry->addr + offset, nbytes, MS_ASYNC);
   }
-
-#endif
-
+#else
 	pgstat_report_wait_start(wait_event_info);
 	pg_flush_data(VfdCache[file].fd, offset, nbytes);
 	pgstat_report_wait_end();
+#endif
 }
 
 int
