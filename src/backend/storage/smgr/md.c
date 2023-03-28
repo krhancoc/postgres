@@ -747,15 +747,6 @@ mdread(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 	}
 }
 
-void mdregistersync(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum) 
-{
-	MdfdVec    *v;
-	v = _mdfd_getseg(reln, forknum, blocknum, true,
-					 EXTENSION_FAIL | EXTENSION_CREATE_RECOVERY);
-	if(!SmgrIsTemp(reln))
-	  register_dirty_segment(reln, forknum, v);
-}
-
 /*
  *	mdwrite() -- Write the supplied block at the appropriate location.
  *

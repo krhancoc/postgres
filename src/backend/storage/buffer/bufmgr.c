@@ -67,6 +67,8 @@
 
 char ZEROES[BLCKSZ];
 
+uintptr_t *addresses;
+
 #endif
 
 /* Note: these two macros only work on shared buffers, not local ones! */
@@ -926,7 +928,6 @@ ReadBuffer_common(SMgrRelation smgr, char relpersistence, ForkNumber forkNum,
 				 mode == RBM_ZERO_ON_ERROR)
 			pgBufferUsage.shared_blks_read++;
 	}
-
 	/* At this point we do NOT hold any locks. */
 
 	/* if it was already in the buffer pool, we're done */
@@ -2688,6 +2689,8 @@ InitBufferPoolAccess(void)
 
 #ifdef USE_BUFDIRECT
   memset(ZEROES, 0, BLCKSZ);
+  addresses = malloc(sizeof(uintptr_t) * NBuffers);
+  memset(addresses, 0, sizeof(uintptr_t) * NBuffers);
 #endif
 }
 
@@ -2948,36 +2951,6 @@ FlushBuffer(BufferDesc *buf, SMgrRelation reln)
 	if (buf_state & BM_PERMANENT)
 		XLogFlush(recptr);
 
-#ifdef USE_BUFDIRECT
-
-	bufBlock = BufHdrGetBlock(buf);
-
-  if (IsBootstrapProcessingMode()) {
-    /*
-     * Update page checksum if desired.  Since we have only shared lock on the
-     * buffer, other processes might be updating hint bits in it, so we must
-     * copy the page to private storage if we do checksumming.
-     */
-    bufToWrite = PageSetChecksumCopy((Page) bufBlock, buf->tag.blockNum);
-
-    if (track_io_timing)
-      INSTR_TIME_SET_CURRENT(io_start);
-
-    /*
-     * bufToWrite is either the shared buffer or a copy, as appropriate.
-     */
-    smgrwrite(reln,
-          buf->tag.forkNum,
-          buf->tag.blockNum,
-          bufToWrite,
-          false);
-
-  } else { 
-    mdregistersync(reln, buf->tag.forkNum, buf->tag.blockNum);
-  }
-
-#else
-
 	/*
 	 * Now it's safe to write buffer to disk. Note that no one else should
 	 * have been able to write it while we were busy with log flushing because
@@ -3003,8 +2976,6 @@ FlushBuffer(BufferDesc *buf, SMgrRelation reln)
 			  buf->tag.blockNum,
 			  bufToWrite,
 			  false);
-
-#endif
 
 	if (track_io_timing)
 	{
