@@ -67,7 +67,21 @@
 
 char ZEROES[BLCKSZ];
 
-uintptr_t *addresses;
+static inline uint64_t rdtsc(void)
+{
+	if (sizeof(long) == sizeof(uint64_t)) {
+		uint32_t lo, hi;
+        	asm volatile("rdtsc" : "=a" (lo), "=d" (hi));
+		return ((uint64_t)(hi) << 32) | lo;
+	} else {
+		uint64_t tsc;
+        	asm volatile("rdtsc" : "=A" (tsc));
+		return tsc;
+	}
+}
+
+static pg_atomic_uint64 count;
+static pg_atomic_uint64 fastcount;
 
 #endif
 
@@ -75,19 +89,33 @@ uintptr_t *addresses;
 #ifdef USE_BUFDIRECT
 
 #define OldBufHdrGetBlock(bufHdr)	((Block) (BufferBlocks + ((Size) (bufHdr)->buf_id) * BLCKSZ))
-
 /* 
  * TODO: Fix this slowdown, we are going from an array lookup to much more than that
  * so I can see this being quite a big slowdown.
  * */
 static void *BufHdrGetBlock(BufferDesc *bufHdr) {
   uintptr_t myaddr = 0;
+  void * addr;
   BufferTag *tag = &bufHdr->tag;
-
+  uint64_t start, end;
 
   if (IsBootstrapProcessingMode()) {
-    return OldBufHdrGetBlock(bufHdr);
+    addr = OldBufHdrGetBlock(bufHdr);
+#ifdef TIME_BUFFER
+    pg_atomic_fetch_add_u64(&fastcount, 1);
+    if ((pg_atomic_read_u64(&fastcount) % 10000) == 0) {
+      printf("Old Way %lu\n", pg_atomic_read_u64(&fastcount));
+    }
+#endif
+    return addr;
   }
+
+#ifdef TIME_BUFFER
+  pg_atomic_fetch_add_u64(&count, 1);
+  if ((pg_atomic_read_u64(&count) % 10000) == 0) {
+    printf("New way %lu\n", pg_atomic_read_u64(&count));
+  }
+#endif 
 
   MdGetAddr(tag->rnode, tag->forkNum, tag->blockNum, &myaddr);
   return myaddr;
@@ -2689,8 +2717,8 @@ InitBufferPoolAccess(void)
 
 #ifdef USE_BUFDIRECT
   memset(ZEROES, 0, BLCKSZ);
-  addresses = malloc(sizeof(uintptr_t) * NBuffers);
-  memset(addresses, 0, sizeof(uintptr_t) * NBuffers);
+  pg_atomic_init_u64(&count, 0);
+  pg_atomic_init_u64(&fastcount, 0);
 #endif
 }
 
