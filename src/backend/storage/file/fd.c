@@ -404,6 +404,13 @@ MemRead(Vfd *vfd, char *buffer, size_t size, off_t offset)
     size = fsize - offset;
   }
 
+  uintptr_t top = (uintptr_t)entry->addr + fsize;
+  uintptr_t bottom = (uintptr_t)entry->addr;
+  if (((uintptr_t)buffer < top) && ((uintptr_t)buffer >= bottom)) {
+    return size;
+  }
+
+
   DO_DB(elog(LOG, "MemRead %s %p %p %lu %lu %lu\n", vfd->fileName, (char *)entry->addr + offset, buffer,
       size, offset, fsize));
   memcpy(buffer, (char *)entry->addr + offset, size);
@@ -431,6 +438,13 @@ MemWrite(Vfd *vfd, char *buffer, size_t size, off_t offset)
     if (error)
       elog(ERROR, "Ftruncate errors %d", errno);
   }
+
+  uintptr_t top = (uintptr_t)entry->addr + fsize;
+  uintptr_t bottom = (uintptr_t)entry->addr;
+  if (((uintptr_t)buffer < top) && ((uintptr_t)buffer >= bottom)) {
+    return size;
+  }
+
 
   DO_DB(elog(LOG,"Memwrite %s %p %lu %lu %lu\n", vfd->fileName, entry->addr, size, offset));
   memcpy((char *)entry->addr + offset, buffer, size);

@@ -2999,7 +2999,7 @@ FlushBuffer(BufferDesc *buf, SMgrRelation reln)
 			  bufToWrite,
 			  false);
 #ifdef USE_BUFDIRECT
-  }
+  } 
 #endif
 
 	if (track_io_timing)
