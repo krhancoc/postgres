@@ -67,19 +67,6 @@
 
 char ZEROES[BLCKSZ];
 
-static inline uint64_t rdtsc(void)
-{
-	if (sizeof(long) == sizeof(uint64_t)) {
-		uint32_t lo, hi;
-        	asm volatile("rdtsc" : "=a" (lo), "=d" (hi));
-		return ((uint64_t)(hi) << 32) | lo;
-	} else {
-		uint64_t tsc;
-        	asm volatile("rdtsc" : "=A" (tsc));
-		return tsc;
-	}
-}
-
 static pg_atomic_uint64 count;
 static pg_atomic_uint64 fastcount;
 
@@ -97,7 +84,6 @@ static void *BufHdrGetBlock(BufferDesc *bufHdr) {
   uintptr_t myaddr = 0;
   void * addr;
   BufferTag *tag = &bufHdr->tag;
-  uint64_t start, end;
 
   if (IsBootstrapProcessingMode()) {
     addr = OldBufHdrGetBlock(bufHdr);
@@ -123,6 +109,7 @@ static void *BufHdrGetBlock(BufferDesc *bufHdr) {
 
 void *BufferGetBlock(Buffer buffer)
 {
+
 	if (BufferIsLocal(buffer))
 	  return LocalBufferBlockPointers[-(buffer) - 1];
 

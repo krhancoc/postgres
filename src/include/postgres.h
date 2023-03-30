@@ -47,6 +47,21 @@
 #include "utils/elog.h"
 #include "utils/palloc.h"
 
+static inline uint64_t rdtsc(void)
+{
+	if (sizeof(long) == sizeof(uint64_t)) {
+		uint32_t lo, hi;
+        	asm volatile("rdtsc" : "=a" (lo), "=d" (hi));
+		return ((uint64_t)(hi) << 32) | lo;
+	} else {
+		uint64_t tsc;
+        	asm volatile("rdtsc" : "=A" (tsc));
+		return tsc;
+	}
+}
+
+
+
 /* ----------------------------------------------------------------
  *				Section 1:	variable-length datatypes (TOAST support)
  * ----------------------------------------------------------------

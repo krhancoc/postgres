@@ -310,7 +310,6 @@ static int	numTempTableSpaces = -1;
 static int	nextTempTableSpace = 0;
 
 #ifdef USE_MMAP
-
 static HTAB *AddrTable = NULL;
 
 #endif
@@ -509,7 +508,7 @@ void
 GetFileAddr(char *path, uintptr_t *ptr) {
   struct AddrTableEntry *entry;
 
-retry:
+retry: 
   entry = hash_search(AddrTable, path, HASH_FIND, NULL);
   if (entry == NULL) {
     DO_DB(elog(LOG, "Could not find anything for %s\n", path));
@@ -1094,6 +1093,8 @@ InitFileAccess(void)
   hash_ctl.keysize = ADDRMAX;
   hash_ctl.entrysize = sizeof(struct AddrTableEntry);
   AddrTable = hash_create("Memory Address Table", 512, &hash_ctl, HASH_ELEM | HASH_STRINGS);
+  walkdir("base", mmap_if_exists_fname, false, DEBUG1);
+  walkdir("global", mmap_if_exists_fname, false, DEBUG1);
 #endif
 }
 
