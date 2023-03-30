@@ -109,7 +109,6 @@ static void *BufHdrGetBlock(BufferDesc *bufHdr) {
 
 void *BufferGetBlock(Buffer buffer)
 {
-
 	if (BufferIsLocal(buffer))
 	  return LocalBufferBlockPointers[-(buffer) - 1];
 
@@ -1049,7 +1048,6 @@ ReadBuffer_common(SMgrRelation smgr, char relpersistence, ForkNumber forkNum,
 	Assert(!(pg_atomic_read_u32(&bufHdr->state) & BM_VALID));	/* spinlock not needed */
 
 	bufBlock = isLocalBuf ? LocalBufHdrGetBlock(bufHdr) : BufHdrGetBlock(bufHdr);
-
 	if (isExtend)
 	{
 #ifdef USE_BUFDIRECT
@@ -1090,6 +1088,11 @@ ReadBuffer_common(SMgrRelation smgr, char relpersistence, ForkNumber forkNum,
        * is the mmaped page
        */
 
+#ifdef USE_BUFDIRECT
+      if (IsBootstrapProcessingMode()) {
+			  smgrread(smgr, forkNum, blockNum, (char *) bufBlock);
+      }
+#else
 			smgrread(smgr, forkNum, blockNum, (char *) bufBlock);
 
 			if (track_io_timing)
@@ -1120,6 +1123,7 @@ ReadBuffer_common(SMgrRelation smgr, char relpersistence, ForkNumber forkNum,
 									blockNum,
 									relpath(smgr->smgr_rnode, forkNum))));
 			}
+#endif
 		}
 	}
 
@@ -2986,11 +2990,17 @@ FlushBuffer(BufferDesc *buf, SMgrRelation reln)
 	/*
 	 * bufToWrite is either the shared buffer or a copy, as appropriate.
 	 */
+#ifdef USE_BUFDIRECT
+  if (IsBootstrapProcessingMode()) {
+#endif
 	smgrwrite(reln,
 			  buf->tag.forkNum,
 			  buf->tag.blockNum,
 			  bufToWrite,
 			  false);
+#ifdef USE_BUFDIRECT
+  }
+#endif
 
 	if (track_io_timing)
 	{
