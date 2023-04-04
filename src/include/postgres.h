@@ -47,7 +47,7 @@
 #include "utils/elog.h"
 #include "utils/palloc.h"
 
-static inline uint64_t rdtsc(void)
+static __attribute((always_inline)) __inline__ uint64_t rdtsc(void)
 {
 	if (sizeof(long) == sizeof(uint64_t)) {
 		uint32_t lo, hi;
@@ -59,6 +59,16 @@ static inline uint64_t rdtsc(void)
 		return tsc;
 	}
 }
+
+static __attribute((always_inline)) __inline__ uint64_t rdtscp(void)
+{
+	if (sizeof(long) == sizeof(uint64_t)) {
+		uint32_t lo, hi;
+        	asm volatile("rdtscp" : "=a" (lo), "=d" (hi));
+		return ((uint64_t)(hi) << 32) | lo;
+	} 
+}
+
 
 
 

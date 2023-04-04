@@ -2388,14 +2388,29 @@ FileRead(File file, char *buffer, int amount, off_t offset,
 
 retry:
 	pgstat_report_wait_start(wait_event_info);
+  uint64_t start, end;
 #ifdef USE_MMAP
   if (vfdP->isMem) {
+#ifdef MEASURE_RW
+    start = rdtscp();
+#endif // MEASURE_RW
 	  returnCode = MemRead(vfdP, buffer, amount, offset);
+#ifdef MEASURE_RW
+    end = rdtscp();
+    printf("MMAP-READ=%lu\n", end - start);
+#endif // MEASURE_RW
   } else {
 	  returnCode = pg_pread(vfdP->fd, buffer, amount, offset);
   }
 #else
+#ifdef MEASURE_RW
+  start = rdtscp();
+#endif // MEASURE_RW
 	returnCode = pg_pread(vfdP->fd, buffer, amount, offset);
+#ifdef MEASURE_RW
+  end = rdtscp();
+  printf("PREAD=%lu\n", end - start);
+#endif // MEASURE_RW
 #endif
 	pgstat_report_wait_end();
 
@@ -2477,17 +2492,33 @@ FileWrite(File file, char *buffer, int amount, off_t offset,
 
 retry:
 	errno = 0;
+  uint64_t start, end;
 	pgstat_report_wait_start(wait_event_info);
 #ifdef USE_MMAP
   if (vfdP->isMem) {
+#ifdef MEASURE_RW
+    start = rdtscp();
+#endif // MEASURE_RW
     returnCode = MemWrite(&VfdCache[file], buffer, amount, offset);
+#ifdef MEASURE_RW
+    end = rdtscp();
+    printf("MMAPWRITE=%lu\n", end - start);
+#endif // MEASURE_RW
   } else {
 	  returnCode = pg_pwrite(VfdCache[file].fd, buffer, amount, offset);
   }
 #else
+#ifdef MEASURE_RW
+  start = rdtscp();
+#endif // MEASURE_RW
 	returnCode = pg_pwrite(VfdCache[file].fd, buffer, amount, offset);
+#ifdef MEASURE_RW
+  end = rdtscp();
+  printf("PGWRITE=%lu\n", end - start);
+#endif // MEASURE_RW
 #endif
 	pgstat_report_wait_end();
+
 
 	/* if write didn't set errno, assume problem is no disk space */
 	if (returnCode != amount && errno == 0)
