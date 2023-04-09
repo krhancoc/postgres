@@ -2999,7 +2999,17 @@ FlushBuffer(BufferDesc *buf, SMgrRelation reln)
 			  bufToWrite,
 			  false);
 #ifdef USE_BUFDIRECT
-  } 
+  } else {
+    /* 
+     * We pass a null buffer as the dirty buffer is already the mmaped regions
+     * memory
+     */
+	  smgrwrite(reln,
+			  buf->tag.forkNum,
+			  buf->tag.blockNum,
+			  NULL,
+			  false);
+  }
 #endif
 
 	if (track_io_timing)

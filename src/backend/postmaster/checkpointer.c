@@ -933,7 +933,6 @@ RequestCheckpoint(int flags)
 	int			ntries;
 	int			old_failed,
 				old_started;
-
 	/*
 	 * If in a standalone backend, just do it ourselves.
 	 */

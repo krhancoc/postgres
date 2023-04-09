@@ -416,6 +416,7 @@ static int
 MemWrite(Vfd *vfd, char *buffer, size_t size, off_t offset)
 {
   struct AddrTableEntry *entry;
+  char check[4096];
   int error;
   size_t fsize;
 
@@ -425,6 +426,7 @@ MemWrite(Vfd *vfd, char *buffer, size_t size, off_t offset)
   if (entry == NULL) {
     elog(ERROR, "Could not find element when writing");
   }
+
   if ((offset + size) > fsize) {
     fsize = offset + size;
     error = ftruncate(vfd->fd, fsize);
@@ -432,7 +434,7 @@ MemWrite(Vfd *vfd, char *buffer, size_t size, off_t offset)
       elog(ERROR, "Ftruncate errors %d", errno);
   }
 
-  DO_DB(elog(LOG,"Memwrite %s %p %lu %lu %lu\n", vfd->fileName, entry->addr, size, offset));
+  DO_DB(elog(LOG,"Memwrite %lu %s %p %lu %lu\n", fsize, vfd->fileName, entry->addr, size, offset));
   memcpy((char *)entry->addr + offset, buffer, size);
 
   errno = 0;
@@ -480,7 +482,7 @@ MemOpen(const char *path, int flags, mode_t mode)
 
     addr = mmap(NULL, MMAP_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     DO_DB(elog(LOG, "MemOpen Create: %s %lu %lu %p", path, size, size, addr));
-    if (addr == (void *)(-1)) {
+    if (addr == MAP_FAILED) {
       elog(ERROR, "Could not mmap %d", errno);
     }
 
@@ -1056,8 +1058,6 @@ mmap_if_exists_fname(const char *fname, bool isdir, int elevel)
     close(fd);
 	}
 }
-
-
 
 /*
  * InitFileAccess --- initialize this module during backend startup

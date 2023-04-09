@@ -50,10 +50,8 @@ extern int	mdunlinkfiletag(const FileTag *ftag, char *path);
 extern bool mdfiletagmatches(const FileTag *ftag, const FileTag *candidate);
 
 #ifdef USE_BUFDIRECT
-
 void
 MdGetAddr(RelFileNode reln, ForkNumber forknum, BlockNumber blkno, uintptr_t *ptr);
-
 #endif
 
 #endif							/* MD_H */

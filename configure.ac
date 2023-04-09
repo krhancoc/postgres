@@ -1054,6 +1054,8 @@ if test "$with_slswal" = yes; then
   AC_CHECK_LIB(sls, slsfs_create_wal, [], [AC_MSG_ERROR([library 'sls' is required to build with WAL support])])
 fi
 
+
+
 AC_MSG_CHECKING([Build with mmaped shared memory regions for relation files])
 PGAC_ARG_BOOL(with, mmap, no, [use SLS Shared memory],
               [AC_DEFINE([USE_MMAP], 1, [Define to 1 to back relation files with mmap during normal running of postgres (--with-mmap)])])
@@ -1071,6 +1073,25 @@ if test "$with_bufdirect" = yes; then
     AC_MSG_ERROR([--with-bufdirect must be build with --with-mmap])
   fi
 fi
+
+AC_MSG_CHECKING([Support SLS Persistence])
+PGAC_ARG_BOOL(with, sls, no, [Use SLS Persistence],
+              [AC_DEFINE([USE_SLS], 1, [Define to 1 to use the SLS Persistence API. (--with-sls)])])
+AC_MSG_RESULT([$with_sls])
+AC_SUBST(with_sls)
+
+if test "$with_sls" = yes; then
+  if test "$with_bufdirect" = no; then
+    AC_MSG_ERROR([--with-bufdirect must be present with --with-sls])
+  else
+    AC_CHECK_HEADERS(m4_normalize([
+      sls.h
+      slos.h
+    ]))
+    #AC_CHECK_LIB(sls, [], [], [AC_MSG_ERROR([library 'sls' is required])])
+  fi
+fi
+
 
 
 AC_MSG_CHECKING([Overwrite pg_wal location])
