@@ -46,6 +46,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#include "datatype/timestamp.h"
 #include "access/clog.h"
 #include "access/commit_ts.h"
 #include "access/heaptoast.h"
@@ -6883,12 +6884,35 @@ CheckPointGuts(XLogRecPtr checkPointRedo, int flags)
 	/* Write out all dirty data in SLRUs and the main buffer pool */
 	TRACE_POSTGRESQL_BUFFER_CHECKPOINT_START(flags);
 	CheckpointStats.ckpt_write_t = GetCurrentTimestamp();
+  TimestampTz start = GetCurrentTimestamp();
 	CheckPointCLOG();
+  TimestampTz end = GetCurrentTimestamp();
+  elog(LOG, "CLOG - %lu", TimestampDifferenceMilliseconds(start, end));
+
+  start = GetCurrentTimestamp();
 	CheckPointCommitTs();
+  end = GetCurrentTimestamp();
+  elog(LOG, "CommitTs - %lu", TimestampDifferenceMilliseconds(start, end));
+
+  start = GetCurrentTimestamp();
 	CheckPointSUBTRANS();
+  end = GetCurrentTimestamp();
+  elog(LOG, "SubTrans - %lu", TimestampDifferenceMilliseconds(start, end));
+
+  start = GetCurrentTimestamp();
 	CheckPointMultiXact();
+  end = GetCurrentTimestamp();
+  elog(LOG, "MultiXact - %lu", TimestampDifferenceMilliseconds(start, end));
+
+  start = GetCurrentTimestamp();
 	CheckPointPredicate();
+  end = GetCurrentTimestamp();
+  elog(LOG, "Predicate - %lu", TimestampDifferenceMilliseconds(start, end));
+
+  start = GetCurrentTimestamp();
 	CheckPointBuffers(flags);
+  end = GetCurrentTimestamp();
+  elog(LOG, "buffers - %lu", TimestampDifferenceMilliseconds(start, end));
 
 	/* Perform all queued up fsyncs */
 	TRACE_POSTGRESQL_BUFFER_CHECKPOINT_SYNC_START();

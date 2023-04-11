@@ -776,41 +776,38 @@ mdwrite(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 	v = _mdfd_getseg(reln, forknum, blocknum, skipFsync,
 					 EXTENSION_FAIL | EXTENSION_CREATE_RECOVERY);
 
-#ifdef USE_BUFDIRECT
-  if (buffer != NULL) {
-#endif
-
 	seekpos = (off_t) BLCKSZ * (blocknum % ((BlockNumber) RELSEG_SIZE));
 
 	Assert(seekpos < (off_t) BLCKSZ * RELSEG_SIZE);
 
 	nbytes = FileWrite(v->mdfd_vfd, buffer, BLCKSZ, seekpos, WAIT_EVENT_DATA_FILE_WRITE);
+#ifdef USE_BUFDIRECT
+  if (buffer != NULL) {
+#endif
+    TRACE_POSTGRESQL_SMGR_MD_WRITE_DONE(forknum, blocknum,
+                      reln->smgr_rnode.node.spcNode,
+                      reln->smgr_rnode.node.dbNode,
+                      reln->smgr_rnode.node.relNode,
+                      reln->smgr_rnode.backend,
+                      nbytes,
+                      BLCKSZ);
 
-	TRACE_POSTGRESQL_SMGR_MD_WRITE_DONE(forknum, blocknum,
-										reln->smgr_rnode.node.spcNode,
-										reln->smgr_rnode.node.dbNode,
-										reln->smgr_rnode.node.relNode,
-										reln->smgr_rnode.backend,
-										nbytes,
-										BLCKSZ);
-
-	if (nbytes != BLCKSZ)
-	{
-		if (nbytes < 0)
-			ereport(ERROR,
-					(errcode_for_file_access(),
-					 errmsg("could not write block %u in file \"%s\": %m",
-							blocknum, FilePathName(v->mdfd_vfd))));
-		/* short write: complain appropriately */
-		ereport(ERROR,
-				(errcode(ERRCODE_DISK_FULL),
-				 errmsg("could not write block %u in file \"%s\": wrote only %d of %d bytes",
-						blocknum,
-						FilePathName(v->mdfd_vfd),
-						nbytes, BLCKSZ),
-				 errhint("Check free disk space.")));
-	}
-
+    if (nbytes != BLCKSZ)
+    {
+      if (nbytes < 0)
+        ereport(ERROR,
+            (errcode_for_file_access(),
+             errmsg("could not write block %u in file \"%s\": %m",
+                blocknum, FilePathName(v->mdfd_vfd))));
+      /* short write: complain appropriately */
+      ereport(ERROR,
+          (errcode(ERRCODE_DISK_FULL),
+           errmsg("could not write block %u in file \"%s\": wrote only %d of %d bytes",
+              blocknum,
+              FilePathName(v->mdfd_vfd),
+              nbytes, BLCKSZ),
+           errhint("Check free disk space.")));
+    }
 #ifdef USE_BUFDIRECT
   }
 #endif

@@ -2463,6 +2463,9 @@ FileWrite(File file, char *buffer, int amount, off_t offset,
 	if (returnCode < 0)
 		return returnCode;
 
+  if (buffer == NULL)
+    return 0;
+
 	vfdP = &VfdCache[file];
 
 	/*
@@ -2587,9 +2590,11 @@ FileSync(File file, uint32 wait_event_info)
     returnCode = pg_fsync(VfdCache[file].fd);
     pgstat_report_wait_end();
   } else {
+#ifndef USE_SLS
     struct AddrTableEntry *entry;
     entry = get_entry(&VfdCache[file]);
     msync(entry->addr, 0, MS_ASYNC);
+#endif // USE_SLS
   }
 #else
 	pgstat_report_wait_start(wait_event_info);

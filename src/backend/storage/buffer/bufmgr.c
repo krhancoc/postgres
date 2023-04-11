@@ -80,7 +80,7 @@ static pg_atomic_uint64 fastcount;
  * TODO: Fix this slowdown, we are going from an array lookup to much more than that
  * so I can see this being quite a big slowdown.
  * */
-static void *BufHdrGetBlock(BufferDesc *bufHdr) {
+static inline void *BufHdrGetBlock(BufferDesc *bufHdr) {
   uintptr_t myaddr = 0;
   void * addr;
   BufferTag *tag = &bufHdr->tag;
@@ -2077,7 +2077,24 @@ BufferSync(int flags)
 		 * SyncOneBuffer.
 		 */
 		buf_state = LockBufHdr(bufHdr);
+#ifdef USE_SLS
+    if (!IsBootstrapProcessingMode()) {
+      buf_state &= ~BM_DIRTY;
+      pg_atomic_unlocked_write_u32(&bufHdr->state, buf_state);
+    } else if ((buf_state & mask) == mask)
+		{
+			CkptSortItem *item;
 
+			buf_state |= BM_CHECKPOINT_NEEDED;
+
+			item = &CkptBufferIds[num_to_scan++];
+			item->buf_id = buf_id;
+			item->tsId = bufHdr->tag.rnode.spcNode;
+			item->relNode = bufHdr->tag.rnode.relNode;
+			item->forkNum = bufHdr->tag.forkNum;
+			item->blockNum = bufHdr->tag.blockNum;
+		}
+#else
 		if ((buf_state & mask) == mask)
 		{
 			CkptSortItem *item;
@@ -2091,7 +2108,7 @@ BufferSync(int flags)
 			item->forkNum = bufHdr->tag.forkNum;
 			item->blockNum = bufHdr->tag.blockNum;
 		}
-
+#endif
 		UnlockBufHdr(bufHdr, buf_state);
 
 		/* Check for barrier events in case NBuffers is large. */
@@ -2099,6 +2116,7 @@ BufferSync(int flags)
 			ProcessProcSignalBarrier();
 	}
 
+  /* Using SLS mode here scan should be 0 and we should just return */
 	if (num_to_scan == 0)
 		return;					/* nothing to do */
 
