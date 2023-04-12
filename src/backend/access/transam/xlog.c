@@ -115,6 +115,10 @@
 #include "slsfs.h"
 #endif
 
+#ifdef USE_SLS
+#include "sls.h"
+#endif
+
 #define KB (1024)
 #define MB (1024 * KB)
 #define GB (1024 * GB)
@@ -6911,6 +6915,10 @@ CheckPointGuts(XLogRecPtr checkPointRedo, int flags)
 
   start = GetCurrentTimestamp();
 	CheckPointBuffers(flags);
+#ifdef USE_SLS
+  sls_checkpoint(1000, true);
+#endif
+  
   end = GetCurrentTimestamp();
   elog(LOG, "buffers - %lu", TimestampDifferenceMilliseconds(start, end));
 
