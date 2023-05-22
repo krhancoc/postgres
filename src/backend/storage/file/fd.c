@@ -120,7 +120,7 @@
 #include "sls.h"
 #include "libgen.h"
 
-static const size_t SAS_SIZE =  (10ULL * 1024 * 1024);
+static const size_t SAS_SIZE =  (3ULL * 1024 * 1024 * 1024);
 #endif
 
 static const size_t MMAP_SIZE =  (3ULL * 1024 * 1024 * 1024);
