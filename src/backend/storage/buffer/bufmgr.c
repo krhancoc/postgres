@@ -84,8 +84,7 @@ static inline void *BufHdrGetBlock(BufferDesc *bufHdr) {
   uintptr_t myaddr = 0;
   void * addr;
   BufferTag *tag = &bufHdr->tag;
-
-  if (IsBootstrapProcessingMode()) {
+  if (bootstrap_still) {
     addr = OldBufHdrGetBlock(bufHdr);
 #ifdef TIME_BUFFER
     pg_atomic_fetch_add_u64(&fastcount, 1);
@@ -1089,7 +1088,7 @@ ReadBuffer_common(SMgrRelation smgr, char relpersistence, ForkNumber forkNum,
        */
 
 #ifdef USE_BUFDIRECT
-      if (IsBootstrapProcessingMode()) {
+      if (bootstrap_still) {
 			  smgrread(smgr, forkNum, blockNum, (char *) bufBlock);
       }
 #else
@@ -2078,7 +2077,7 @@ BufferSync(int flags)
 		 */
 		buf_state = LockBufHdr(bufHdr);
 #ifdef USE_SLS
-    if (!IsBootstrapProcessingMode()) {
+    if (!bootstrap_still) {
       buf_state &= ~BM_DIRTY;
       pg_atomic_unlocked_write_u32(&bufHdr->state, buf_state);
     } else if ((buf_state & mask) == mask)
@@ -3009,7 +3008,7 @@ FlushBuffer(BufferDesc *buf, SMgrRelation reln)
 	 * bufToWrite is either the shared buffer or a copy, as appropriate.
 	 */
 #ifdef USE_BUFDIRECT
-  if (IsBootstrapProcessingMode()) {
+  if (bootstrap_still) {
 #endif
 	smgrwrite(reln,
 			  buf->tag.forkNum,

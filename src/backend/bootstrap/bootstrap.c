@@ -377,6 +377,8 @@ BootstrapModeMain(int argc, char *argv[], bool check_only)
 	 */
 	RelationMapFinishBootstrap();
 
+  elog(LOG, "Done RelationMapFinishBootstrap");
+
 	/* Clean up and exit */
 	cleanup();
 	proc_exit(0);

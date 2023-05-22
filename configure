@@ -736,6 +736,7 @@ LZ4_CFLAGS
 with_lz4
 with_zlib
 with_system_tzdata
+with_sas
 with_sls
 with_bufdirect
 with_mmap
@@ -907,6 +908,7 @@ with_slswal
 with_mmap
 with_bufdirect
 with_sls
+with_sas
 with_overwrite
 with_system_tzdata
 with_zlib
@@ -1631,6 +1633,7 @@ Optional Packages:
   --with-mmap             use SLS Shared memory
   --with-bufdirect        Pass through buffer cache
   --with-sls              Use SLS Persistence
+  --with-sas              Use Global address space
   --with-overwrite=OVERWRITE
                           Use new pg_wal location
   --with-system-tzdata=DIR
@@ -10083,6 +10086,105 @@ fi
   fi
 fi
 
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking Use the Global address space" >&5
+printf %s "checking Use the Global address space... " >&6; }
+
+
+
+# Check whether --with-sas was given.
+if test ${with_sas+y}
+then :
+  withval=$with_sas;
+  case $withval in
+    yes)
+
+printf "%s\n" "#define USE_SAS 1" >>confdefs.h
+
+      ;;
+    no)
+      :
+      ;;
+    *)
+      as_fn_error $? "no argument expected for --with-sas option" "$LINENO" 5
+      ;;
+  esac
+
+else $as_nop
+  with_sas=no
+
+fi
+
+
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $with_sas" >&5
+printf "%s\n" "$with_sas" >&6; }
+
+if test "$with_sas" = yes; then
+  ac_fn_c_check_header_compile "$LINENO" "sls.h" "ac_cv_header_sls_h" "$ac_includes_default"
+if test "x$ac_cv_header_sls_h" = xyes
+then :
+  printf "%s\n" "#define HAVE_SLS_H 1" >>confdefs.h
+
+fi
+ac_fn_c_check_header_compile "$LINENO" "slos.h" "ac_cv_header_slos_h" "$ac_includes_default"
+if test "x$ac_cv_header_slos_h" = xyes
+then :
+  printf "%s\n" "#define HAVE_SLOS_H 1" >>confdefs.h
+
+fi
+ac_fn_c_check_header_compile "$LINENO" "slsfs.h" "ac_cv_header_slsfs_h" "$ac_includes_default"
+if test "x$ac_cv_header_slsfs_h" = xyes
+then :
+  printf "%s\n" "#define HAVE_SLSFS_H 1" >>confdefs.h
+
+fi
+
+
+  { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for slsfs_sas_create, slsfs_sas_map, sls_checkpoint in -lsls" >&5
+printf %s "checking for slsfs_sas_create, slsfs_sas_map, sls_checkpoint in -lsls... " >&6; }
+if test ${ac_cv_lib_sls_slsfs_sas_create__slsfs_sas_map__sls_checkpoint+y}
+then :
+  printf %s "(cached) " >&6
+else $as_nop
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lsls  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+char slsfs_sas_create, slsfs_sas_map, sls_checkpoint ();
+int
+main (void)
+{
+return slsfs_sas_create, slsfs_sas_map, sls_checkpoint ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"
+then :
+  ac_cv_lib_sls_slsfs_sas_create__slsfs_sas_map__sls_checkpoint=yes
+else $as_nop
+  ac_cv_lib_sls_slsfs_sas_create__slsfs_sas_map__sls_checkpoint=no
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_sls_slsfs_sas_create__slsfs_sas_map__sls_checkpoint" >&5
+printf "%s\n" "$ac_cv_lib_sls_slsfs_sas_create__slsfs_sas_map__sls_checkpoint" >&6; }
+if test "x$ac_cv_lib_sls_slsfs_sas_create__slsfs_sas_map__sls_checkpoint" = xyes
+then :
+  printf "%s\n" "#define HAVE_LIBSLS 1" >>confdefs.h
+
+  LIBS="-lsls $LIBS"
+
+else $as_nop
+  as_fn_error $? "library 'sls' is required to build with WAL support" "$LINENO" 5
+fi
+
+fi
 
 
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking Overwrite pg_wal location" >&5

@@ -204,14 +204,28 @@ static bool authwarning = false;
  * (no quoting to worry about).
  */
 static const char *boot_options = "-F -c log_checkpoints=false";
+#ifdef USE_SAS
+static const char *backend_options = "--single -F -O -j -c search_path=pg_catalog -c exit_on_error=true -c log_checkpoints=false -c bootstrap_still=true";
+#else
 static const char *backend_options = "--single -F -O -j -c search_path=pg_catalog -c exit_on_error=true -c log_checkpoints=false";
+#endif
 
 /* Additional switches to pass to backend (either boot or standalone) */
+#ifdef USE_SAS
+static char *extra_options = "-c bootstrap_still=true";
+#else
 static char *extra_options = "";
+#endif
 
 static const char *const subdirs[] = {
 	"global",
 	"pg_wal/archive_status",
+#ifdef USE_SAS
+  "sas",
+  "sas/global",
+  "sas/base",
+  "sas/base/1",
+#endif
 	"pg_commit_ts",
 	"pg_dynshmem",
 	"pg_notify",

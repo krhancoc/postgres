@@ -113,11 +113,19 @@
 #include "common/hashfn.h"
 #include "storage/shmem.h"
 #include "storage/lwlocknames.h"
+#endif
+
+#if defined(USE_SAS) || defined(USE_SLS)
+#include "slos.h"
+#include "sls.h"
+#include "libgen.h"
+
+static const size_t SAS_SIZE =  (10ULL * 1024 * 1024);
+#endif
 
 static const size_t MMAP_SIZE =  (3ULL * 1024 * 1024 * 1024);
 
 #define ROUNDUP(x, y) ((((x) + (y) - 1) / (y)) * (y))
-#endif
 
 /* Define PG_FLUSH_DATA_WORKS if we have an implementation for pg_flush_data */
 #if defined(HAVE_SYNC_FILE_RANGE)
@@ -177,6 +185,10 @@ int			max_safe_fds = FD_MINFREE;	/* default if not changed */
 
 /* Whether it is safe to continue running after fsync() fails. */
 bool		data_sync_retry = false;
+
+#ifdef USE_SAS
+bool		bootstrap_still = false;
+#endif
 
 /* How SyncDataDirectory() should do its job. */
 int			recovery_init_sync_method = RECOVERY_INIT_SYNC_METHOD_FSYNC;
@@ -311,6 +323,7 @@ static int	nextTempTableSpace = 0;
 
 #ifdef USE_MMAP
 static HTAB *AddrTable = NULL;
+static pthread_mutex_t table_lk = PTHREAD_MUTEX_INITIALIZER;
 
 #endif
 
@@ -377,9 +390,10 @@ static void unlink_if_exists_fname(const char *fname, bool isdir, int elevel);
 
 static int	fsync_parent_path(const char *fname, int elevel);
 
-#ifdef USE_MMAP
+#if defined(USE_MMAP) || defined(USE_SAS)
 
 static struct AddrTableEntry *
+
 get_entry(Vfd *vfd) {
  return hash_search(AddrTable, vfd->fileName, HASH_FIND, NULL);
 }
@@ -416,7 +430,6 @@ static int
 MemWrite(Vfd *vfd, char *buffer, size_t size, off_t offset)
 {
   struct AddrTableEntry *entry;
-  char check[4096];
   int error;
   size_t fsize;
 
@@ -442,11 +455,140 @@ MemWrite(Vfd *vfd, char *buffer, size_t size, off_t offset)
 }
 
 static int 
+copyover(int fd, char * addr) {
+  ssize_t size, total, readin;
+  char buffer[4096];
+  size = lseek(fd, 0L, SEEK_END);
+  total = 0;
+  while (total < size) {
+    readin = pread(fd, buffer, 4096, total);
+    memcpy(&addr[total], buffer, readin);
+    total += readin;
+    if (readin <= 0) {
+      break;
+    }
+  }
+
+  if (total != size)
+      elog(ERROR, "Copyover error %d", errno);
+
+  return 0;
+}
+
+#define INITING (0x1)
+#define DONE (0x2)
+
+struct InitRegion {
+  volatile pg_atomic_uint32 state;
+};
+
+static void
+checkInitRegion(void * addr, int originalfd)
+{
+  struct InitRegion *initRegion;
+  uint32_t state;
+  uint32_t newstate;
+
+  initRegion = (uintptr_t)addr + (SAS_SIZE - sizeof(struct InitRegion));
+  /* If It has not been initialized so we must try and do this */
+  state = pg_atomic_read_u32(&initRegion->state);
+
+  if (state != DONE) {
+    /* If this succeeds, we are the Initing process, if it fails someone already is Initing*/
+    if (pg_atomic_compare_exchange_u32(&initRegion->state, &state, INITING)) {
+      copyover(originalfd, addr);
+      pg_atomic_write_u32(&initRegion->state, DONE);
+    }
+  }
+
+  /* Spin for now */
+  while (pg_atomic_read_u32(&initRegion->state) != DONE) {
+    pg_usleep(1000);
+  }
+}
+
+/* We have two directories we use, one is the directory called "bootstrap"
+ * which holds bootstrapped data for PostGres. We first check to see if MemOpen
+ * wants to create if not we check our current path, if its not there then we
+ * read from the bootstrap directory and copy it into our new file. We will use
+ * a file lock on the bootstrapped file to ensure we are the only one creating
+ * this file
+ */ 
+static int 
 MemOpen(const char *path, int flags, mode_t mode)
 {
   int fd;
   void *addr;
   struct AddrTableEntry *foundele = NULL;
+  int error;
+#ifdef USE_SAS
+  DO_DB(elog(LOG, "MemOpen SAS: %s %lu %d %d", path, strlen(path), IsNormalProcessingMode(), bootstrap_still));
+  int originalfd;
+  char * sas_dir = "sas/";
+  char newpath[256];
+  memcpy(newpath, sas_dir, 4);
+  memcpy(&newpath[4], path, strlen(path) + 1);
+  pthread_mutex_lock(&table_lk);
+  foundele = hash_search(AddrTable, path, HASH_FIND, NULL);
+  if (foundele == NULL) {
+	  originalfd = BasicOpenFilePerm(path, flags, mode);
+    /* We are trying to open an already made file */
+    if (originalfd == -1) {
+      /* The file does not exist! Unlock and return normally */
+      pthread_mutex_unlock(&table_lk);
+      return -1;
+    }
+
+    foundele = hash_search(AddrTable, path, HASH_ENTER, NULL);
+    strlcpy(foundele->key, path, ADDRMAX);
+    if (pthread_mutex_init(&foundele->lk, NULL) != 0) {
+      elog(ERROR, "Creating lock!");
+    }
+    /* Acquire OUR processes lock so no other thread can try creating this element */
+    pthread_mutex_lock(&foundele->lk);
+    /* Release the table lock */
+    pthread_mutex_unlock(&table_lk);
+
+    /* Check if SAS was created in the new directory */
+    fd = open(newpath, flags & ~O_CREAT, mode);
+    if (fd == -1) {
+      char * parent = dirname(newpath);
+      pg_mkdir_p(parent, pg_dir_create_mode);
+      memcpy(newpath, sas_dir, 4);
+      memcpy(&newpath[4], path, strlen(path) + 1);
+      /* Create the SAS if it was not there */
+      error = slsfs_sas_create(newpath, SAS_SIZE);
+      /* Try again but if it fails blow up */
+      fd = open(newpath, flags & ~O_CREAT, mode);
+      if (fd == -1) {
+        elog(ERROR, "SAS Region not found!");
+      }
+    }
+
+
+    /* Map in our addr */
+    error = slsfs_sas_map(fd, (void **)&addr);
+    if (error) 
+      elog(ERROR, "ERROR MAPPING SAS");
+
+    close(fd);
+
+    /* Make sure we are init'd */
+    checkInitRegion(addr, originalfd);
+    foundele->addr = addr;
+
+    pthread_mutex_unlock(&foundele->lk);
+
+    /* We had back the original fd as it handle metadata changes (size changes etc) */
+    return originalfd;
+
+  } else {
+    pthread_mutex_unlock(&table_lk);
+    /* We have the element in our mapping so just hand the original file over */
+	  return BasicOpenFilePerm(path, flags, mode);
+  }
+}
+#else
 
   foundele = hash_search(AddrTable, path, HASH_FIND, NULL);
   //foundele = addr_lookup(table, path);
@@ -501,30 +643,36 @@ MemOpen(const char *path, int flags, mode_t mode)
 
   /* Opening without a create */
   DO_DB(elog(LOG, "MemOpen Open: %s %p", path, foundele));
-
   return fd;
 }
+#endif
+
 
 
 void
 GetFileAddr(char *path, uintptr_t *ptr) {
-  struct AddrTableEntry *entry;
+  if (bootstrap_still) {
+    elog(ERROR, "Should not be bootstrapping here");
+  }
 
-retry: 
+  struct AddrTableEntry *entry;
+  int retries = 0;
+retry_file_addr: 
   entry = hash_search(AddrTable, path, HASH_FIND, NULL);
   if (entry == NULL) {
-    DO_DB(elog(LOG, "Could not find anything for %s\n", path));
     if (strlen(path) > 0) {
       int fd = MemOpen(path, O_RDWR | PG_BINARY, 0);
       close(fd);
-      goto retry;
+      retries += 1;
+      if (retries == 10) {
+        elog(ERROR, "MAX RETRIES %s\n", path);
+      }
+      goto retry_file_addr;
     }
-    elog(ERROR, "Could not find anything for %s\n", path);
   }
 
   *ptr = (uintptr_t) entry->addr;
 }
-
 #endif
 
 
@@ -589,6 +737,9 @@ pg_fsync(int fd)
 int
 pg_fsync_no_writethrough(int fd)
 {
+#ifdef USE_SAS
+  return 0;
+#endif
 	if (enableFsync)
 		return fsync(fd);
 	else
@@ -1093,8 +1244,6 @@ InitFileAccess(void)
   hash_ctl.keysize = ADDRMAX;
   hash_ctl.entrysize = sizeof(struct AddrTableEntry);
   AddrTable = hash_create("Memory Address Table", 512, &hash_ctl, HASH_ELEM | HASH_STRINGS);
-  walkdir("base", mmap_if_exists_fname, false, DEBUG1);
-  walkdir("global", mmap_if_exists_fname, false, DEBUG1);
 #endif
 }
 
@@ -1832,7 +1981,7 @@ PathNameOpenFilePerm(const char *fileName, int fileFlags, mode_t fileMode)
 #ifdef USE_MMAP
 	DO_DB(elog(LOG, "PathNameOpenFilePerm isMem: %d %d %d",
 			   isMem, IsBootstrapProcessingMode(), IsInitProcessingMode()));
-  if (isMem && !IsBootstrapProcessingMode()) {
+  if (isMem && !bootstrap_still) {
 	  vfdP->fd = MemOpen(fileName, fileFlags, fileMode);
     vfdP->isMem = true;
   } else {
@@ -2388,8 +2537,7 @@ FileRead(File file, char *buffer, int amount, off_t offset,
 
 retry:
 	pgstat_report_wait_start(wait_event_info);
-  uint64_t start, end;
-#ifdef USE_MMAP
+#if defined(USE_MMAP) || defined(USE_SAS)
   if (vfdP->isMem) {
 #ifdef MEASURE_RW
     start = rdtscp();
@@ -2497,7 +2645,7 @@ retry:
 	errno = 0;
   uint64_t start, end;
 	pgstat_report_wait_start(wait_event_info);
-#ifdef USE_MMAP
+#if defined(USE_MMAP) || defined(USE_SAS)
   if (vfdP->isMem) {
 #ifdef MEASURE_RW
     start = rdtscp();
@@ -4124,6 +4272,18 @@ fsync_parent_path(const char *fname, int elevel)
 int
 MakePGDirectory(const char *directoryName)
 {
+#ifdef USE_SAS
+  char newpath[256];
+  int error;
+  if (strncmp(directoryName, "global", 6) == 0 || strncmp(directoryName, "base", 4) == 0) {
+    memcpy(newpath, "sas/", 4);
+    memcpy(&newpath[4], directoryName, strlen(directoryName) + 1);
+	  error = mkdir(newpath, pg_dir_create_mode);
+    if (error) {
+      elog(LOG, "ERROR: Creating directory %s", newpath);
+    }
+  }
+#endif
 	return mkdir(directoryName, pg_dir_create_mode);
 }
 

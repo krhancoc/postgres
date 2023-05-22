@@ -6916,7 +6916,9 @@ CheckPointGuts(XLogRecPtr checkPointRedo, int flags)
   start = GetCurrentTimestamp();
 	CheckPointBuffers(flags);
 #ifdef USE_SLS
-  sls_checkpoint(1000, true);
+  if (IsNormalProcessingMode()) {
+    sls_checkpoint(1000, true);
+  }
 #endif
   
   end = GetCurrentTimestamp();

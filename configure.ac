@@ -1092,6 +1092,20 @@ if test "$with_sls" = yes; then
   fi
 fi
 
+AC_MSG_CHECKING([Use the Global address space])
+PGAC_ARG_BOOL(with, sas, no, [Use Global address space],
+              [AC_DEFINE([USE_SAS], 1, [Define to 1 to use the SAS. (--with-sas)])])
+AC_MSG_RESULT([$with_sas])
+AC_SUBST(with_sas)
+if test "$with_sas" = yes; then
+  AC_CHECK_HEADERS(m4_normalize([
+    sls.h
+    slos.h
+    slsfs.h
+  ]))
+
+  AC_CHECK_LIB(sls, [slsfs_sas_create, slsfs_sas_map, sls_checkpoint], [], [AC_MSG_ERROR([library 'sls' is required to build with WAL support])])
+fi
 
 
 AC_MSG_CHECKING([Overwrite pg_wal location])
