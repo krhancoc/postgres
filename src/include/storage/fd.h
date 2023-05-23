@@ -75,9 +75,7 @@ extern PGDLLIMPORT int max_files_per_process;
 extern PGDLLIMPORT bool data_sync_retry;
 extern PGDLLIMPORT int recovery_init_sync_method;
 
-#ifdef USE_SAS
 extern PGDLLIMPORT bool bootstrap_still;
-#endif
 
 /*
  * This is private to fd.c, but exported for save/restore_backend_variables()

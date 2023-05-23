@@ -1398,7 +1398,6 @@ static struct config_bool ConfigureNamesBool[] =
 		true,
 		NULL, NULL, NULL
 	},
-#ifdef USE_SAS
 	{
 		{"bootstrap_still", PGC_SIGHUP, LOGGING_WHAT,
 			gettext_noop("Says we are still bootstrapping"),
@@ -1408,7 +1407,6 @@ static struct config_bool ConfigureNamesBool[] =
 		false,
 		NULL, NULL, NULL
 	},
-#endif
 	{
 		{"log_connections", PGC_SU_BACKEND, LOGGING_WHAT,
 			gettext_noop("Logs each successful connection."),

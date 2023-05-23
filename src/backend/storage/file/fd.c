@@ -186,9 +186,7 @@ int			max_safe_fds = FD_MINFREE;	/* default if not changed */
 /* Whether it is safe to continue running after fsync() fails. */
 bool		data_sync_retry = false;
 
-#ifdef USE_SAS
 bool		bootstrap_still = false;
-#endif
 
 /* How SyncDataDirectory() should do its job. */
 int			recovery_init_sync_method = RECOVERY_INIT_SYNC_METHOD_FSYNC;
@@ -482,6 +480,7 @@ struct InitRegion {
   volatile pg_atomic_uint32 state;
 };
 
+#ifdef USE_SAS
 static void
 checkInitRegion(void * addr, int originalfd)
 {
@@ -506,6 +505,7 @@ checkInitRegion(void * addr, int originalfd)
     pg_usleep(1000);
   }
 }
+#endif
 
 /* We have two directories we use, one is the directory called "bootstrap"
  * which holds bootstrapped data for PostGres. We first check to see if MemOpen
