@@ -10081,8 +10081,58 @@ then :
   printf "%s\n" "#define HAVE_SLOS_H 1" >>confdefs.h
 
 fi
+ac_fn_c_check_header_compile "$LINENO" "slsfs.h" "ac_cv_header_slsfs_h" "$ac_includes_default"
+if test "x$ac_cv_header_slsfs_h" = xyes
+then :
+  printf "%s\n" "#define HAVE_SLSFS_H 1" >>confdefs.h
 
-    #AC_CHECK_LIB(sls, [], [], [AC_MSG_ERROR([library 'sls' is required])])
+fi
+
+    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for sls_checkpoint in -lsls" >&5
+printf %s "checking for sls_checkpoint in -lsls... " >&6; }
+if test ${ac_cv_lib_sls_sls_checkpoint+y}
+then :
+  printf %s "(cached) " >&6
+else $as_nop
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lsls  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+char sls_checkpoint ();
+int
+main (void)
+{
+return sls_checkpoint ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"
+then :
+  ac_cv_lib_sls_sls_checkpoint=yes
+else $as_nop
+  ac_cv_lib_sls_sls_checkpoint=no
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_sls_sls_checkpoint" >&5
+printf "%s\n" "$ac_cv_lib_sls_sls_checkpoint" >&6; }
+if test "x$ac_cv_lib_sls_sls_checkpoint" = xyes
+then :
+  printf "%s\n" "#define HAVE_LIBSLS 1" >>confdefs.h
+
+  LIBS="-lsls $LIBS"
+
+else $as_nop
+  as_fn_error $? "library 'sls' is required" "$LINENO" 5
+fi
+
   fi
 fi
 

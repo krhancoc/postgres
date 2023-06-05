@@ -1087,8 +1087,9 @@ if test "$with_sls" = yes; then
     AC_CHECK_HEADERS(m4_normalize([
       sls.h
       slos.h
+      slsfs.h
     ]))
-    #AC_CHECK_LIB(sls, [], [], [AC_MSG_ERROR([library 'sls' is required])])
+    AC_CHECK_LIB(sls, [sls_checkpoint], [], [AC_MSG_ERROR([library 'sls' is required])])
   fi
 fi
 
