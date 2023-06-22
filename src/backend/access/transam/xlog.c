@@ -6917,7 +6917,7 @@ CheckPointGuts(XLogRecPtr checkPointRedo, int flags)
 	CheckPointBuffers(flags);
 #ifdef USE_SLS
   if (IsNormalProcessingMode()) {
-    sls_checkpoint(1000, true);
+    //sls_checkpoint(1000, true);
   }
 #endif
   

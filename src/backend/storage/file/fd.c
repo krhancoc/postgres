@@ -391,22 +391,39 @@ static int	fsync_parent_path(const char *fname, int elevel);
 #if defined(USE_MMAP) || defined(USE_SAS)
 
 static struct AddrTableEntry *
-
 get_entry(Vfd *vfd) {
  return hash_search(AddrTable, vfd->fileName, HASH_FIND, NULL);
 }
+
+#define INITING (0x1)
+#define DONE (0x2)
+
+struct InitRegion {
+  volatile pg_atomic_uint32 state;
+  volatile pg_atomic_uint64 size;
+};
+
+
+#define INITREGION(addr) ((struct InitRegion *)((uintptr_t)(addr) + (SAS_SIZE - sizeof(struct InitRegion))))
 
 static int 
 MemRead(Vfd *vfd, char *buffer, size_t size, off_t offset)
 {
   struct AddrTableEntry *entry;
   size_t fsize;
-	fsize = lseek(vfd->fd, 0, SEEK_END);
 
+#ifndef USE_SAS
+  fsize = lseek(vfd->fd, 0, SEEK_END);
+#endif
   entry = get_entry(vfd);
+
   if (entry == NULL) {
-    elog(ERROR, "Could not find element when reading");
+    elog(ERROR, "Could not find element when writing");
   }
+
+#ifdef USE_SAS
+  fsize = (size_t)pg_atomic_read_u64(&INITREGION(entry->addr)->size);
+#endif
 
   if (offset >= fsize) {
     return -1;
@@ -418,7 +435,9 @@ MemRead(Vfd *vfd, char *buffer, size_t size, off_t offset)
 
   DO_DB(elog(LOG, "MemRead %s %p %p %lu %lu %lu\n", vfd->fileName, (char *)entry->addr + offset, buffer,
       size, offset, fsize));
-  memcpy(buffer, (char *)entry->addr + offset, size);
+  if (buffer != ((char *)entry->addr + offset)) {
+  	memcpy(buffer, (char *)entry->addr + offset, size);
+  }
 
   errno = 0;
   return size;
@@ -431,12 +450,18 @@ MemWrite(Vfd *vfd, char *buffer, size_t size, off_t offset)
   int error;
   size_t fsize;
 
+#ifndef USE_SAS
   fsize = lseek(vfd->fd, 0, SEEK_END);
+#endif
   entry = get_entry(vfd);
 
   if (entry == NULL) {
     elog(ERROR, "Could not find element when writing");
   }
+
+#ifdef USE_SAS
+  fsize = (size_t)pg_atomic_read_u64(&INITREGION(entry->addr)->size);
+#endif
 
   if ((offset + size) > fsize) {
     fsize = offset + size;
@@ -444,15 +469,21 @@ MemWrite(Vfd *vfd, char *buffer, size_t size, off_t offset)
     if (error)
       elog(ERROR, "Ftruncate errors %d", errno);
   }
+ 
+#ifdef USE_SAS
+  pg_atomic_write_u64(&INITREGION(entry->addr)->size, (uint64_t)fsize);
+#endif
 
   DO_DB(elog(LOG,"Memwrite %lu %s %p %lu %lu\n", fsize, vfd->fileName, entry->addr, size, offset));
-  memcpy((char *)entry->addr + offset, buffer, size);
+  if (buffer != ((char *)entry->addr + offset)) {
+  	memcpy((char *)entry->addr + offset, buffer, size);
+  }
 
   errno = 0;
   return size;
 }
 
-static int 
+static size_t
 copyover(int fd, char * addr) {
   ssize_t size, total, readin;
   char buffer[4096];
@@ -470,15 +501,9 @@ copyover(int fd, char * addr) {
   if (total != size)
       elog(ERROR, "Copyover error %d", errno);
 
-  return 0;
+  return size;
 }
 
-#define INITING (0x1)
-#define DONE (0x2)
-
-struct InitRegion {
-  volatile pg_atomic_uint32 state;
-};
 
 #ifdef USE_SAS
 static void
@@ -487,6 +512,7 @@ checkInitRegion(void * addr, int originalfd)
   struct InitRegion *initRegion;
   uint32_t state;
   uint32_t newstate;
+  uint64_t size;
 
   initRegion = (uintptr_t)addr + (SAS_SIZE - sizeof(struct InitRegion));
   /* If It has not been initialized so we must try and do this */
@@ -495,7 +521,8 @@ checkInitRegion(void * addr, int originalfd)
   if (state != DONE) {
     /* If this succeeds, we are the Initing process, if it fails someone already is Initing*/
     if (pg_atomic_compare_exchange_u32(&initRegion->state, &state, INITING)) {
-      copyover(originalfd, addr);
+      size = copyover(originalfd, addr);
+      pg_atomic_write_u64(&initRegion->size, size);
       pg_atomic_write_u32(&initRegion->state, DONE);
     }
   }
@@ -2766,6 +2793,15 @@ FileSize(File file)
 		if (FileAccess(file) < 0)
 			return (off_t) -1;
 	}
+#ifdef USE_SAS
+	struct AddrTableEntry *entry;
+
+	entry = get_entry(&VfdCache[file]);
+	if (entry != NULL) {
+  		return pg_atomic_read_u64(&INITREGION(entry->addr)->size);
+	}
+#endif
+
 
 	return lseek(VfdCache[file].fd, 0, SEEK_END);
 }
@@ -2783,6 +2819,15 @@ FileTruncate(File file, off_t offset, uint32 wait_event_info)
 	returnCode = FileAccess(file);
 	if (returnCode < 0)
 		return returnCode;
+
+#ifdef USE_SAS
+	struct AddrTableEntry *entry;
+
+	entry = get_entry(&VfdCache[file]);
+	if (entry != NULL) {
+  		pg_atomic_write_u64(&INITREGION(entry->addr)->size, (uint64_t)offset);
+	}
+#endif
 
 	pgstat_report_wait_start(wait_event_info);
 	returnCode = ftruncate(VfdCache[file].fd, offset);
