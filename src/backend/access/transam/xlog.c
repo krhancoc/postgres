@@ -116,7 +116,10 @@
 #endif
 
 #ifdef USE_SLS
+#include "slos.h"
+#include "slsfs.h"
 #include "sls.h"
+#include "sls_wal.h"
 #endif
 
 #define KB (1024)
@@ -220,6 +223,46 @@ const struct config_enum_entry archive_mode_options[] = {
 	{"0", ARCHIVE_MODE_OFF, true},
 	{NULL, 0, false}
 };
+#ifdef USE_SAS
+static int SAS_FD = -1;
+
+static void InitSASFd(void)
+{
+	DIR *dp;	
+	char path[PATH_MAX];
+	struct dirent *ep = NULL;
+
+	MemSet(path, '\0', PATH_MAX);
+	sprintf(path, "%s", "sas/global");
+
+	dp = opendir(path);
+	if (dp == NULL) {
+		elog(ERROR, "Could not grab sas/global directory");
+	}
+
+	/* Grab table space oid dir */
+	while ((ep = readdir(dp)) != NULL) {
+		if (ep->d_name[0] == '.' && ep->d_namlen == 1) {
+			continue;
+		}
+		if ((strncmp(ep->d_name, "..", 2) == 0) && (ep->d_namlen == 2)) {
+			continue;
+		}
+
+		sprintf(path, "%s/%s", "sas/global", ep->d_name);
+		break;
+	}
+
+	if (ep == NULL) {
+		closedir(dp);
+		return;
+	}
+
+	SAS_FD = open(path, O_RDONLY);
+	closedir(dp);
+}
+#endif
+
 
 /*
  * Statistics for current checkpoint are collected in this global struct.
@@ -2842,6 +2885,18 @@ XLogBackgroundFlush(void)
 	 * as many of the no-longer-needed WAL buffers for future use as we can.
 	 */
 	AdvanceXLInsertBuffer(InvalidXLogRecPtr, insertTLI, true);
+
+#ifdef USE_SAS
+	if (!bootstrap_still) {
+		if (SAS_FD == -1) {
+			InitSASFd();
+		}
+
+		if (SAS_FD != -1) {
+			sas_trace_flush(SAS_FD);
+		}
+	}
+#endif
 
 	/*
 	 * If we determined that we need to write data, but somebody else
@@ -6888,42 +6943,24 @@ CheckPointGuts(XLogRecPtr checkPointRedo, int flags)
 	/* Write out all dirty data in SLRUs and the main buffer pool */
 	TRACE_POSTGRESQL_BUFFER_CHECKPOINT_START(flags);
 	CheckpointStats.ckpt_write_t = GetCurrentTimestamp();
-  TimestampTz start = GetCurrentTimestamp();
 	CheckPointCLOG();
-  TimestampTz end = GetCurrentTimestamp();
-  elog(LOG, "CLOG - %lu", TimestampDifferenceMilliseconds(start, end));
 
-  start = GetCurrentTimestamp();
 	CheckPointCommitTs();
-  end = GetCurrentTimestamp();
-  elog(LOG, "CommitTs - %lu", TimestampDifferenceMilliseconds(start, end));
 
-  start = GetCurrentTimestamp();
 	CheckPointSUBTRANS();
-  end = GetCurrentTimestamp();
-  elog(LOG, "SubTrans - %lu", TimestampDifferenceMilliseconds(start, end));
 
-  start = GetCurrentTimestamp();
 	CheckPointMultiXact();
-  end = GetCurrentTimestamp();
-  elog(LOG, "MultiXact - %lu", TimestampDifferenceMilliseconds(start, end));
-
-  start = GetCurrentTimestamp();
 	CheckPointPredicate();
-  end = GetCurrentTimestamp();
-  elog(LOG, "Predicate - %lu", TimestampDifferenceMilliseconds(start, end));
 
-  start = GetCurrentTimestamp();
 	CheckPointBuffers(flags);
 #ifdef USE_SLS
+#ifndef USE_SAS
   if (IsNormalProcessingMode()) {
-    //sls_checkpoint(1000, true);
+    sls_checkpoint(1000, true);
   }
 #endif
+#endif
   
-  end = GetCurrentTimestamp();
-  elog(LOG, "buffers - %lu", TimestampDifferenceMilliseconds(start, end));
-
 	/* Perform all queued up fsyncs */
 	TRACE_POSTGRESQL_BUFFER_CHECKPOINT_SYNC_START();
 	CheckpointStats.ckpt_sync_t = GetCurrentTimestamp();

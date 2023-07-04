@@ -71,6 +71,17 @@
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
 
+#ifdef USE_SAS
+#include "slos.h"
+#include "slsfs.h"
+#include "sls_wal.h"
+
+#include "dirent.h"
+
+static int SAS_FD = -1;
+static bool TRACING = false;
+#endif
+
 /*
  *	User-tweakable parameters
  */
@@ -2863,6 +2874,19 @@ AbortTransaction(void)
 		pgstat_report_xact_timestamp(0);
 	}
 
+#ifdef USE_SAS
+	if (!bootstrap_still) {
+		/* Get a SAS file for the IOCTL */
+		if (SAS_FD != -1) {
+			int error = sas_trace_abort(SAS_FD);
+			if (error) {
+				elog(ERROR, "Issue with SAS trace end %d", error);
+			}
+		}
+	}
+#endif
+
+
 	/*
 	 * State remains TRANS_ABORT until CleanupTransaction().
 	 */
@@ -2917,6 +2941,44 @@ CleanupTransaction(void)
 	 */
 	s->state = TRANS_DEFAULT;
 }
+
+#ifdef USE_SAS
+static void InitSASFd(void)
+{
+	DIR *dp;	
+	char path[PATH_MAX];
+	struct dirent *ep = NULL;
+
+	MemSet(path, '\0', PATH_MAX);
+	sprintf(path, "%s", "sas/global");
+
+	dp = opendir(path);
+	if (dp == NULL) {
+		elog(ERROR, "Could not grab sas/global directory");
+	}
+
+	/* Grab table space oid dir */
+	while ((ep = readdir(dp)) != NULL) {
+		if (ep->d_name[0] == '.' && ep->d_namlen == 1) {
+			continue;
+		}
+		if ((strncmp(ep->d_name, "..", 2) == 0) && (ep->d_namlen == 2)) {
+			continue;
+		}
+
+		sprintf(path, "%s/%s", "sas/global", ep->d_name);
+		break;
+	}
+
+	if (ep == NULL) {
+		closedir(dp);
+		return;
+	}
+
+	SAS_FD = open(path, O_RDONLY);
+	closedir(dp);
+}
+#endif
 
 /*
  *	StartTransactionCommand
@@ -2987,6 +3049,23 @@ StartTransactionCommand(void)
 	 */
 	Assert(CurTransactionContext != NULL);
 	MemoryContextSwitchTo(CurTransactionContext);
+#ifdef USE_SAS
+	if (!bootstrap_still) {
+		/* Get a SAS file for the IOCTL */
+		if (SAS_FD == -1) {
+			InitSASFd();
+		}
+
+		// If we don't have a file yet, it means its still doing init steps
+		if (SAS_FD != -1 && !TRACING) {
+			int error = sas_trace_start(SAS_FD);
+			if (error) {
+				elog(ERROR, "Issue with SAS Trace Start %d", error);
+			}
+			TRACING = true;
+		}
+	}
+#endif
 }
 
 
@@ -3284,6 +3363,19 @@ CommitTransactionCommand(void)
 			}
 			break;
 	}
+
+#ifdef USE_SAS
+	if (!bootstrap_still) {
+		/* Get a SAS file for the IOCTL */
+		if (SAS_FD != -1 && TRACING) {
+			int error = sas_trace_commit(SAS_FD);
+			if (error) {
+				elog(ERROR, "Issue with SAS Trace commit %d", error);
+			}
+		}
+	}
+#endif
+
 }
 
 /*
