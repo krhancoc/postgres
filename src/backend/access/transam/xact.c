@@ -1471,6 +1471,7 @@ RecordTransactionCommit(void)
 	{
 		XLogFlush(XactLastRecEnd);
 
+
 		/*
 		 * Now we may update the CLOG, if we wrote a COMMIT record above
 		 */
@@ -1491,6 +1492,18 @@ RecordTransactionCommit(void)
 		 * flush this commit.
 		 */
 		XLogSetAsyncXactLSN(XactLastRecEnd);
+
+#ifdef USE_SAS
+		if (!bootstrap_still) {
+			/* Get a SAS file for the IOCTL */
+			if (SAS_FD != -1 && TRACING) {
+				int error = sas_trace_commit(SAS_FD);
+				if (error) {
+					elog(ERROR, "Issue with SAS Trace commit %d", error);
+				}
+			}
+		}
+#endif
 
 		/*
 		 * We must not immediately update the CLOG, since we didn't flush the
@@ -2280,6 +2293,21 @@ CommitTransaction(void)
 		 */
 		ParallelWorkerReportLastRecEnd(XactLastRecEnd);
 	}
+
+#ifdef USE_SAS
+	if (!bootstrap_still) {
+		/* Get a SAS file for the IOCTL */
+		if (SAS_FD != -1 && TRACING) {
+			TRACE_POSTGRESQL_TRANSACTION_SLSSTART(MyProc->lxid);
+			int error = sas_trace_commit(SAS_FD);
+			if (error) {
+				elog(ERROR, "Issue with SAS Trace commit %d", error);
+			}
+			TRACE_POSTGRESQL_TRANSACTION_SLSSTOP(MyProc->lxid);
+		}
+	}
+#endif
+
 
 	TRACE_POSTGRESQL_TRANSACTION_COMMIT(MyProc->lxid);
 
@@ -3364,18 +3392,6 @@ CommitTransactionCommand(void)
 			break;
 	}
 
-#ifdef USE_SAS
-	if (!bootstrap_still) {
-		/* Get a SAS file for the IOCTL */
-		if (SAS_FD != -1 && TRACING) {
-			int error = sas_trace_commit(SAS_FD);
-			if (error) {
-				elog(ERROR, "Issue with SAS Trace commit %d", error);
-			}
-		}
-	}
-#endif
-
 }
 
 /*
@@ -4416,7 +4432,7 @@ ReleaseSavepoint(const char *name)
 		case TBLOCK_SUBINPROGRESS:
 			break;
 
-			/* These cases are invalid. */
+		/* These cases are invalid. */
 		case TBLOCK_DEFAULT:
 		case TBLOCK_STARTED:
 		case TBLOCK_BEGIN:

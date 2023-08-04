@@ -70,6 +70,13 @@ char ZEROES[BLCKSZ];
 static pg_atomic_uint64 count;
 static pg_atomic_uint64 fastcount;
 
+typedef struct BufSlot {
+	BufferTag tag;
+	void *addr;
+} BufSlot;
+
+BufSlot *bufSlots = NULL;
+
 #endif
 
 /* Note: these two macros only work on shared buffers, not local ones! */
@@ -86,30 +93,33 @@ static inline void *BufHdrGetBlock(BufferDesc *bufHdr) {
   BufferTag *tag = &bufHdr->tag;
   if (bootstrap_still) {
     addr = OldBufHdrGetBlock(bufHdr);
-#ifdef TIME_BUFFER
-    pg_atomic_fetch_add_u64(&fastcount, 1);
-    if ((pg_atomic_read_u64(&fastcount) % 10000) == 0) {
-      printf("Old Way %lu\n", pg_atomic_read_u64(&fastcount));
-    }
-#endif
     return addr;
   }
 
-#ifdef TIME_BUFFER
-  pg_atomic_fetch_add_u64(&count, 1);
-  if ((pg_atomic_read_u64(&count) % 10000) == 0) {
-    printf("New way %lu\n", pg_atomic_read_u64(&count));
+  if (bufSlots == NULL) {
+	  bufSlots = (BufSlot *)malloc(NBuffers * sizeof(BufSlot));
+	  MemSet(bufSlots, -1, NBuffers * sizeof(BufSlot));
   }
-#endif 
 
-  MdGetAddr(tag->rnode, tag->forkNum, tag->blockNum, &myaddr);
+  TRACE_POSTGRESQL_BLOCK_SLSGET();
+  BufferTag ctag = bufSlots[bufHdr->buf_id].tag;
+  if (BUFFERTAGS_EQUAL(*tag, ctag))
+  {
+  	myaddr = bufSlots[bufHdr->buf_id].addr;
+  	TRACE_POSTGRESQL_BLOCK_SLSDONE();
+  } else {
+  	MdGetAddr(tag->rnode, tag->forkNum, tag->blockNum, &myaddr);
+  	bufSlots[bufHdr->buf_id].addr = myaddr;
+  	bufSlots[bufHdr->buf_id].tag = *tag;
+  }
+
   return myaddr;
 }
 
 void *BufferGetBlock(Buffer buffer)
 {
-	if (BufferIsLocal(buffer))
-	  return LocalBufferBlockPointers[-(buffer) - 1];
+  if (BufferIsLocal(buffer))
+	return LocalBufferBlockPointers[-(buffer) - 1];
 
   BufferDesc *hdr = GetBufferDescriptor(buffer - 1);
   return BufHdrGetBlock(hdr);
@@ -1051,8 +1061,8 @@ ReadBuffer_common(SMgrRelation smgr, char relpersistence, ForkNumber forkNum,
 	{
 #ifdef USE_BUFDIRECT
     smgrextend(smgr, forkNum, blockNum, ZEROES, false);
-    if (IsBootstrapProcessingMode()) {
-		  MemSet((char *) bufBlock, 0, BLCKSZ);
+    if (bootstrap_still) {
+		MemSet((char *) bufBlock, 0, BLCKSZ);
     }
 #else
 		/* new buffers are zero-filled */
@@ -2724,9 +2734,9 @@ InitBufferPoolAccess(void)
 	on_shmem_exit(AtProcExit_Buffers, 0);
 
 #ifdef USE_BUFDIRECT
-  memset(ZEROES, 0, BLCKSZ);
-  pg_atomic_init_u64(&count, 0);
-  pg_atomic_init_u64(&fastcount, 0);
+	memset(ZEROES, 0, BLCKSZ);
+	pg_atomic_init_u64(&count, 0);
+	pg_atomic_init_u64(&fastcount, 0);
 #endif
 }
 
@@ -3020,12 +3030,12 @@ FlushBuffer(BufferDesc *buf, SMgrRelation reln)
     /* 
      * We pass a null buffer as the dirty buffer is already the mmaped regions
      * memory
-     */
 	  smgrwrite(reln,
 			  buf->tag.forkNum,
 			  buf->tag.blockNum,
 			  NULL,
 			  false);
+    */
   }
 #endif
 

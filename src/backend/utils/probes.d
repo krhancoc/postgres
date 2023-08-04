@@ -25,6 +25,11 @@
 provider postgresql {
 
 	probe transaction__start(LocalTransactionId);
+	probe transaction__slsstart(LocalTransactionId);
+	probe transaction__slsstop(LocalTransactionId);
+	probe block__slsget();
+	probe block__slsdone();
+
 	probe transaction__commit(LocalTransactionId);
 	probe transaction__abort(LocalTransactionId);
 

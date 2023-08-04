@@ -1228,12 +1228,12 @@ durable_rename_excl(const char *oldfile, const char *newfile, int elevel)
 static void
 mmap_if_exists_fname(const char *fname, bool isdir, int elevel)
 {
-  int fd;
+  	int fd;
 
 	if (!isdir)
 	{
 		fd = MemOpen(fname, O_RDWR, 0);
-    close(fd);
+    		close(fd);
 	}
 }
 
@@ -2638,8 +2638,8 @@ FileWrite(File file, char *buffer, int amount, off_t offset,
 	if (returnCode < 0)
 		return returnCode;
 
-  if (buffer == NULL)
-    return 0;
+	if (buffer == NULL)
+		return 0;
 
 	vfdP = &VfdCache[file];
 

@@ -2886,6 +2886,7 @@ XLogBackgroundFlush(void)
 	 */
 	AdvanceXLInsertBuffer(InvalidXLogRecPtr, insertTLI, true);
 
+/**
 #ifdef USE_SAS
 	if (!bootstrap_still) {
 		if (SAS_FD == -1) {
@@ -2897,6 +2898,7 @@ XLogBackgroundFlush(void)
 		}
 	}
 #endif
+*/
 
 	/*
 	 * If we determined that we need to write data, but somebody else
